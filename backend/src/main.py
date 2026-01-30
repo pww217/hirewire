@@ -1,0 +1,193 @@
+"""HireWire API Backend - Main FastAPI application.
+
+This module sets up the FastAPI application with:
+- CORS configuration
+- Static file serving (Vue frontend)
+- API routers for jobs, favorites
+- Health check endpoint
+- Database lifecycle management
+- Structured logging with structlog
+
+Run with:
+    DATABASE_URL="postgresql://..." uvicorn src.main:app --reload
+"""
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import structlog
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from .config import settings
+from .routers import favorites_router, health_router, jobs_router, search_configs_router, settings_router, stats_router
+
+# Configure structured logging
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        (
+            structlog.processors.JSONRenderer()
+            if settings.log_format == "json"
+            else structlog.dev.ConsoleRenderer()
+        ),
+    ],
+    wrapper_class=structlog.stdlib.BoundLogger,
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    cache_logger_on_first_use=True,
+)
+
+log = structlog.get_logger()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan - startup and shutdown."""
+    log.info("app_starting", environment=settings.environment)
+
+    # Import engine to verify connection on startup
+    from .database import engine
+
+    # Test database connection
+    try:
+        from sqlalchemy import text
+
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+            log.info("database_connected")
+    except Exception as e:
+        log.error("database_connection_failed", error=str(e))
+        # Don't fail startup - health endpoint will report unhealthy
+
+    yield
+
+    # Shutdown: dispose of engine connections
+    await engine.dispose()
+    log.info("app_shutdown")
+
+
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application.
+
+    Returns:
+        Configured FastAPI application instance.
+    """
+    app = FastAPI(
+        title="HireWire API",
+        description="Job search aggregator API",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url="/docs" if settings.environment != "production" else None,
+        redoc_url="/redoc" if settings.environment != "production" else None,
+    )
+
+    # CORS middleware - allow frontend dev server
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",  # Vite dev server
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000",
+        ],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+    # Global exception handler
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        """Catch-all exception handler for unhandled errors."""
+        log.error(
+            "unhandled_exception",
+            path=request.url.path,
+            method=request.method,
+            error=str(exc),
+            exc_info=True,
+        )
+
+        # Return generic error in production
+        if settings.environment == "production":
+            return JSONResponse(
+                status_code=500, content={"detail": "An unexpected error occurred"}
+            )
+
+        # Return detailed error in development
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    # Include API routers
+    app.include_router(health_router)
+    app.include_router(jobs_router, prefix="/api")
+    app.include_router(favorites_router, prefix="/api")
+    app.include_router(search_configs_router, prefix="/api")
+    app.include_router(settings_router, prefix="/api")
+    app.include_router(stats_router, prefix="/api")
+
+    # Static file serving for Vue frontend
+    # In Docker, frontend is built and copied to /app/static
+    # Path: backend/src/main.py -> backend/src -> backend -> /app -> /app/static
+    static_dir = Path(__file__).parent.parent.parent / "static"
+
+    if static_dir.exists():
+        # Serve assets directory
+        assets_dir = static_dir / "assets"
+        if assets_dir.exists():
+            app.mount(
+                "/assets", StaticFiles(directory=str(assets_dir)), name="assets"
+            )
+
+        # Serve index.html for root and SPA routes
+        @app.get("/")
+        async def serve_index():
+            """Serve Vue frontend index.html."""
+            index_path = static_dir / "index.html"
+            if index_path.exists():
+                return FileResponse(index_path)
+            return {"message": "HireWire API", "docs": "/docs"}
+
+        # Catch-all for SPA routes - must be last
+        @app.get("/{path:path}")
+        async def serve_spa(path: str):
+            """Serve SPA routes - fallback to index.html for client-side routing."""
+            # Skip API routes
+            if path.startswith("api/") or path.startswith("docs") or path.startswith("redoc"):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+            # Try to serve static file
+            file_path = static_dir / path
+            if file_path.exists() and file_path.is_file():
+                return FileResponse(file_path)
+
+            # Fallback to index.html for SPA routing
+            index_path = static_dir / "index.html"
+            if index_path.exists():
+                return FileResponse(index_path)
+
+            return JSONResponse(status_code=404, content={"detail": "Not found"})
+    else:
+        # No static files - just serve API info at root
+        @app.get("/")
+        async def api_info():
+            """API information when no frontend is deployed."""
+            return {
+                "name": "HireWire API",
+                "version": "0.1.0",
+                "docs": "/docs",
+            }
+
+    return app
+
+
+# Create the application instance
+app = create_app()

@@ -1,0 +1,316 @@
+<script setup lang="ts">
+/**
+ * JobCard - Displays a single job listing
+ */
+import { computed } from 'vue'
+import type { Job } from '@/types/api'
+import { useFavoritesStore } from '@/stores/favorites'
+import BaseBadge from '@/components/common/BaseBadge.vue'
+
+interface Props {
+  job: Job
+}
+
+const props = defineProps<Props>()
+
+const emit = defineEmits<{
+  favorite: [jobId: number]
+  hide: [jobId: number]
+  click: [jobId: number]
+}>()
+
+const favoritesStore = useFavoritesStore()
+
+// Computed
+const isFavorite = computed(() => favoritesStore.isFavorite(props.job.id))
+
+const formattedSalary = computed(() => {
+  const { salary_min, salary_max, salary_interval } = props.job
+  if (!salary_min && !salary_max) return null
+  
+  const formatNum = (n: number) => {
+    if (n >= 1000) return `$${Math.round(n / 1000)}K`
+    return `$${n}`
+  }
+  
+  let salary = ''
+  if (salary_min && salary_max) {
+    salary = `${formatNum(salary_min)} - ${formatNum(salary_max)}`
+  } else if (salary_min) {
+    salary = `${formatNum(salary_min)}+`
+  } else if (salary_max) {
+    salary = `Up to ${formatNum(salary_max)}`
+  }
+  
+  if (salary_interval) {
+    const intervals: Record<string, string> = {
+      yearly: '/yr',
+      monthly: '/mo',
+      hourly: '/hr',
+    }
+    salary += intervals[salary_interval] || ''
+  }
+  
+  return salary
+})
+
+const postedDate = computed(() => {
+  if (!props.job.date_posted) return 'Recently'
+  
+  const posted = new Date(props.job.date_posted)
+  const now = new Date()
+  const diffDays = Math.floor((now.getTime() - posted.getTime()) / (1000 * 60 * 60 * 24))
+  
+  if (diffDays === 0) return 'Today'
+  if (diffDays === 1) return 'Yesterday'
+  if (diffDays < 7) return `${diffDays} days ago`
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
+  return posted.toLocaleDateString()
+})
+
+const isNew = computed(() => {
+  if (!props.job.first_seen) return false
+  const firstSeen = new Date(props.job.first_seen)
+  const now = new Date()
+  const diffHours = (now.getTime() - firstSeen.getTime()) / (1000 * 60 * 60)
+  return diffHours < 24
+})
+
+const locationDisplay = computed(() => {
+  if (props.job.location_city && props.job.location_state) {
+    return `${props.job.location_city}, ${props.job.location_state}`
+  }
+  return props.job.location_raw || 'Location not specified'
+})
+
+// Handlers
+function handleFavoriteClick(e: Event) {
+  e.stopPropagation()
+  emit('favorite', props.job.id)
+}
+
+function handleHideClick(e: Event) {
+  e.stopPropagation()
+  emit('hide', props.job.id)
+}
+
+function handleCardClick() {
+  emit('click', props.job.id)
+}
+
+function openJobUrl(e: Event) {
+  e.stopPropagation()
+  window.open(props.job.job_url, '_blank', 'noopener')
+}
+</script>
+
+<template>
+  <article 
+    class="job-card"
+    :class="{ 'is-favorite': isFavorite }"
+    @click="handleCardClick"
+  >
+    <!-- Header: Title + Actions -->
+    <div class="job-card-header">
+      <div class="job-card-title-row">
+        <h3 class="job-card-title">
+          {{ job.title }}
+        </h3>
+        <BaseBadge v-if="isNew" variant="new">New</BaseBadge>
+      </div>
+      
+      <div class="job-card-actions">
+        <button 
+          class="btn-icon"
+          :class="{ active: isFavorite }"
+          :title="isFavorite ? 'Remove from favorites' : 'Add to favorites'"
+          @click="handleFavoriteClick"
+        >
+          {{ isFavorite ? '★' : '☆' }}
+        </button>
+        <button 
+          class="btn-icon"
+          title="Hide this job"
+          @click="handleHideClick"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+    
+    <!-- Meta: Company, Location, Badges -->
+    <div class="job-card-meta">
+      <span class="company">{{ job.company }}</span>
+      <span class="separator">•</span>
+      <span class="location">{{ locationDisplay }}</span>
+      
+      <div class="job-card-badges">
+        <BaseBadge v-if="job.is_remote" variant="remote">Remote</BaseBadge>
+        <BaseBadge v-if="job.company_size" variant="default">{{ job.company_size }}</BaseBadge>
+      </div>
+    </div>
+    
+    <!-- Salary (if available) -->
+    <div v-if="formattedSalary" class="job-card-salary">
+      {{ formattedSalary }}
+    </div>
+    
+    <!-- Footer: Date, Sources, Apply -->
+    <div class="job-card-footer">
+      <div class="job-card-footer-left">
+        <span class="posted-date">{{ postedDate }}</span>
+        <div class="job-sources">
+          <BaseBadge 
+            v-for="source in job.sources.slice(0, 2)" 
+            :key="source" 
+            variant="source"
+          >
+            {{ source }}
+          </BaseBadge>
+        </div>
+      </div>
+      
+      <button class="btn btn-primary btn-sm" @click="openJobUrl">
+        Apply →
+      </button>
+    </div>
+  </article>
+</template>
+
+<style scoped>
+.job-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.job-card:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-focus);
+}
+
+.job-card.is-favorite {
+  border-left: 3px solid var(--status-favorite);
+}
+
+.job-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.job-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.job-card-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-card-actions {
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.job-card-actions .btn-icon {
+  padding: var(--space-1);
+  min-width: 28px;
+  min-height: 28px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.job-card-actions .btn-icon:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.job-card-actions .btn-icon.active {
+  color: var(--status-favorite);
+}
+
+.job-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.job-card-meta .company {
+  font-weight: 500;
+}
+
+.job-card-meta .separator {
+  color: var(--text-muted);
+}
+
+.job-card-badges {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: var(--space-1);
+}
+
+.job-card-salary {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--accent-success);
+  margin-bottom: var(--space-3);
+}
+
+.job-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.job-card-footer-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.posted-date {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.job-sources {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.btn-sm {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+</style>

@@ -1,0 +1,67 @@
+# HireWire Local Development Docker Compose
+# Usage: docker-compose up
+#
+# This starts:
+# - PostgreSQL database
+# - Web app (API + frontend)
+#
+# To run scraper: docker-compose --profile scraper run --rm scraper
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hirewire
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: hirewire
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./shared/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hirewire"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Web application (API + frontend)
+  # Uses unified image with default CMD (uvicorn)
+  # Also includes scraper config for /api/sync endpoint
+  web:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://hirewire:localdev@postgres:5432/hirewire
+      LOG_LEVEL: DEBUG
+      LOG_FORMAT: console
+      ENVIRONMENT: development
+      # Scraper config (for /api/sync endpoint)
+      ENABLED_SOURCES: jobspy
+      JOBSPY_SITES: indeed,glassdoor,linkedin
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Scraper (run on-demand)
+  # Same image, different command
+  # Usage: docker-compose --profile scraper run --rm scraper
+  scraper:
+    build: .
+    command: ["python", "-m", "scraper.src.main"]
+    environment:
+      DATABASE_URL: postgresql://hirewire:localdev@postgres:5432/hirewire
+      LOG_LEVEL: DEBUG
+      LOG_FORMAT: console
+      ENABLED_SOURCES: jobspy
+      JOBSPY_SITES: indeed,glassdoor,linkedin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - scraper
+
+volumes:
+  postgres_data:

@@ -1,0 +1,22 @@
+# HireWire Scraper Dependencies
+# Pin versions for reproducibility
+
+# Job scraping
+python-jobspy>=1.1.75
+
+# Database
+asyncpg>=0.29.0
+sqlalchemy>=2.0.0
+
+# Configuration
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Logging
+structlog>=24.1.0
+
+# HTTP client (for ATS APIs)
+httpx>=0.26.0
+
+# Utilities
+python-dateutil>=2.8.0
