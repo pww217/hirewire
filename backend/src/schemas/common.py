@@ -1,7 +1,5 @@
 """Common Pydantic schemas for pagination and error responses."""
 
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 

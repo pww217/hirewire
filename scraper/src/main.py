@@ -270,7 +270,6 @@ async def main() -> ScrapeResult:
 
         # Check if any sites had errors
         any_success = any(sr.success for sr in result.site_results)
-        all_success = all(sr.success for sr in result.site_results)
         result.success = any_success  # Partial success is still success
 
         log.info(

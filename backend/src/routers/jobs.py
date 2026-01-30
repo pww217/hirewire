@@ -148,7 +148,7 @@ def build_job_query(
     if not include_hidden:
         query = query.where(
             or_(
-                UserJobState.is_hidden == False,  # noqa: E712
+                UserJobState.is_hidden.is_(False),
                 UserJobState.is_hidden.is_(None),
             )
         )
