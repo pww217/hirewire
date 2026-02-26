@@ -101,6 +101,7 @@ def raw_job_to_job(raw_job: RawJob) -> Job:
 
     return Job(
         dedup_hash=dedup_hash,
+        company_id=raw_job.company_id,
         title=raw_job.title,
         company=raw_job.company,
         company_url=raw_job.company_url,

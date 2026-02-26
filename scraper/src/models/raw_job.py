@@ -21,6 +21,9 @@ class RawJob(BaseModel):
     source_site: str = Field(..., max_length=50)
     external_id: Optional[str] = Field(default=None, max_length=255)
 
+    # Tracked company reference (set by scraper)
+    company_id: Optional[int] = None
+
     # Core fields (required)
     title: str = Field(..., min_length=1, max_length=500)
     company: str = Field(..., min_length=1, max_length=255)

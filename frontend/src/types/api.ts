@@ -18,6 +18,7 @@ export type ATSType = 'greenhouse' | 'lever' | 'ashby'
  */
 export interface Job {
   id: number
+  company_id: number | null
   title: string
   company: string
   company_url: string | null

@@ -149,6 +149,7 @@ class Database:
                         """
                         INSERT INTO jobs (
                             dedup_hash,
+                            company_id,
                             title,
                             company,
                             company_url,
@@ -171,12 +172,13 @@ class Database:
                             is_active
                         ) VALUES (
                             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                            $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+                            $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
                         )
                         ON CONFLICT (dedup_hash) DO NOTHING
                         RETURNING id
                         """,
                         job.dedup_hash,
+                        job.company_id,
                         job.title,
                         job.company,
                         job.company_url,
@@ -337,20 +339,86 @@ class Database:
             count = int(result.split()[-1])
             return count
 
-    async def update_company_last_scraped(self, company_id: int) -> None:
-        """Update last_scraped timestamp for tracked company.
+    async def get_active_external_ids_for_company(
+        self, company_id: int, source: str
+    ) -> set[str]:
+        """Get external_ids of all active jobs for a company from a given source.
+
+        Used for disappearance detection: compare against fresh API results
+        to find jobs that have been removed.
+
+        Args:
+            company_id: Tracked company ID
+            source: ATS source name ('ashby', 'greenhouse', 'lever')
+
+        Returns:
+            Set of external_id strings
+        """
+        query = """
+            SELECT js.external_id
+            FROM job_sources js
+            JOIN jobs j ON j.id = js.job_id
+            WHERE j.company_id = $1
+              AND js.source = $2
+              AND j.is_active = true
+              AND js.external_id IS NOT NULL
+        """
+
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(query, company_id, source)
+            return {row["external_id"] for row in rows}
+
+    async def deactivate_jobs_by_external_ids(
+        self, company_id: int, source: str, external_ids: list[str]
+    ) -> int:
+        """Mark specific jobs as inactive (they disappeared from ATS).
+
+        Args:
+            company_id: Tracked company ID
+            source: ATS source name
+            external_ids: List of external_ids to deactivate
+
+        Returns:
+            Number of jobs deactivated
+        """
+        if not external_ids:
+            return 0
+
+        query = """
+            UPDATE jobs
+            SET is_active = false
+            WHERE company_id = $1
+              AND is_active = true
+              AND id IN (
+                  SELECT js.job_id
+                  FROM job_sources js
+                  WHERE js.source = $2
+                    AND js.external_id = ANY($3::text[])
+              )
+        """
+
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(query, company_id, source, external_ids)
+            return int(result.split()[-1])
+
+    async def update_company_after_scrape(
+        self, company_id: int, job_count: int
+    ) -> None:
+        """Update last_scraped timestamp and job count for a tracked company.
 
         Args:
             company_id: ID of the tracked company
+            job_count: Current number of active jobs found
         """
         query = """
             UPDATE tracked_companies
-            SET last_scraped = NOW()
+            SET last_scraped = NOW(),
+                job_count = $2
             WHERE id = $1
         """
 
         async with self.pool.acquire() as conn:
-            await conn.execute(query, company_id)
+            await conn.execute(query, company_id, job_count)
 
     # =========================================================================
     # Statistics queries

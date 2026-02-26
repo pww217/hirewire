@@ -21,6 +21,7 @@ from .config import settings
 from .db import Database, DatabaseConnectionError
 from .dedup import Deduplicator, normalize_jobs
 from .models.raw_job import RawJob
+from .scrapers import AshbyScraper, GreenhouseScraper, LeverScraper, ScrapingError
 
 
 @dataclass
@@ -118,11 +119,65 @@ async def main() -> ScrapeResult:
         log.info("companies_loaded", tracked_companies=len(tracked_companies))
 
         # =====================================================================
-        # STEP 3: Scrape from all tracked companies
+        # STEP 3: Scrape from all tracked companies + disappearance detection
         # =====================================================================
         raw_jobs: list[RawJob] = []
 
-        # TODO (Phase 2): iterate tracked_companies and call ATS scrapers
+        for company in tracked_companies:
+            if not company.ats_type or not company.ats_identifier:
+                log.warning(
+                    "company_missing_ats_config",
+                    company=company.name,
+                    company_id=company.id,
+                )
+                continue
+
+            ats = company.ats_type.lower()
+            if ats == "ashby":
+                scraper = AshbyScraper(company)
+            elif ats == "greenhouse":
+                scraper = GreenhouseScraper(company)
+            elif ats == "lever":
+                scraper = LeverScraper(company)
+            else:
+                log.warning("unknown_ats_type", company=company.name, ats_type=ats)
+                continue
+
+            try:
+                company_jobs = await scraper.fetch()
+            except ScrapingError as e:
+                log.error("scraper_error", company=company.name, error=str(e))
+                continue
+            except Exception as e:
+                log.exception("scraper_unexpected_error", company=company.name, error=str(e))
+                continue
+
+            # Disappearance detection: mark jobs inactive if not in fresh response
+            fetched_ids = {j.external_id for j in company_jobs if j.external_id}
+            existing_ids = await db.get_active_external_ids_for_company(company.id, ats)
+            disappeared = existing_ids - fetched_ids
+            if disappeared:
+                deactivated = await db.deactivate_jobs_by_external_ids(
+                    company.id, ats, list(disappeared)
+                )
+                log.info(
+                    "jobs_disappeared",
+                    company=company.name,
+                    deactivated=deactivated,
+                )
+
+            # Update company stats
+            await db.update_company_after_scrape(company.id, len(company_jobs))
+
+            raw_jobs.extend(company_jobs)
+
+            log.info(
+                "company_scraped",
+                company=company.name,
+                ats=ats,
+                jobs=len(company_jobs),
+                disappeared=len(disappeared),
+            )
 
         # =====================================================================
         # STEP 4: Normalize and deduplicate

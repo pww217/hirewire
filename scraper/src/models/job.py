@@ -31,6 +31,9 @@ class Job(BaseModel):
     # Deduplication
     dedup_hash: str = Field(..., min_length=32, max_length=32)
 
+    # Source company FK
+    company_id: Optional[int] = None
+
     # Core fields
     title: str = Field(..., min_length=1, max_length=500)
     company: str = Field(..., min_length=1, max_length=255)

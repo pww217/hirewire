@@ -39,6 +39,7 @@ class JobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    company_id: int | None = None
     title: str
     company: str
     company_url: str | None

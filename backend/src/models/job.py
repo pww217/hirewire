@@ -32,6 +32,9 @@ class Job(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     dedup_hash: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
 
+    # Source company FK (references tracked_companies)
+    company_id: Mapped["Optional[int]"] = mapped_column(Integer, nullable=True)
+
     # Core fields
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     company: Mapped[str] = mapped_column(String(255), nullable=False)
