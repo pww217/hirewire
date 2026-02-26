@@ -120,24 +120,6 @@ export interface JobListParams {
 // ============================================================================
 
 /**
- * Search configuration
- */
-export interface SearchConfig {
-  id: number
-  name: string
-  search_term: string
-  location: string | null
-  distance: number | null
-  is_remote: boolean
-  hours_old: number
-  results_wanted: number
-  country: string
-  enabled: boolean
-  created_at: string
-  updated_at: string
-}
-
-/**
  * User settings
  */
 export interface UserSettings {
@@ -188,6 +170,5 @@ export interface StatsResponse {
   jobs_last_24h: number
   jobs_last_7d: number
   jobs_by_source: SourceStats[]
-  enabled_configs: number
   last_job_added: string | null
 }

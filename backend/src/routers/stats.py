@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.job import Job, JobSource
-from ..models.search_config import SearchConfig
 from ..schemas.stats import SourceStats, StatsResponse
 
 router = APIRouter(tags=["stats"])
@@ -72,14 +71,6 @@ async def get_stats(
         if source
     ]
 
-    # Enabled search configs count
-    configs_result = await db.execute(
-        select(func.count(SearchConfig.id)).where(
-            SearchConfig.enabled == True  # noqa: E712
-        )
-    )
-    enabled_configs = configs_result.scalar() or 0
-
     # Last job added
     last_job_result = await db.execute(
         select(Job.first_seen)
@@ -95,6 +86,5 @@ async def get_stats(
         jobs_last_24h=jobs_last_24h,
         jobs_last_7d=jobs_last_7d,
         jobs_by_source=jobs_by_source,
-        enabled_configs=enabled_configs,
         last_job_added=last_job_added,
     )

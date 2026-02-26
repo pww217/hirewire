@@ -8,13 +8,6 @@ from .job import (
     JobListResponse,
     JobResponse,
 )
-from .search_config import (
-    SearchConfigCreate,
-    SearchConfigListResponse,
-    SearchConfigResponse,
-    SearchConfigToggleResponse,
-    SearchConfigUpdate,
-)
 from .stats import SourceStats, StatsResponse
 from .user_settings import (
     UserSettingsResponse,
@@ -30,11 +23,6 @@ __all__ = [
     "JobDetailResponse",
     "FavoriteResponse",
     "HideResponse",
-    "SearchConfigCreate",
-    "SearchConfigUpdate",
-    "SearchConfigResponse",
-    "SearchConfigListResponse",
-    "SearchConfigToggleResponse",
     "UserSettingsResponse",
     "UserSettingsUpdate",
     "SourceStats",

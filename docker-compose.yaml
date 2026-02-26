@@ -36,9 +36,6 @@ services:
       LOG_LEVEL: DEBUG
       LOG_FORMAT: console
       ENVIRONMENT: development
-      # Scraper config (for /api/sync endpoint)
-      ENABLED_SOURCES: jobspy
-      JOBSPY_SITES: indeed,glassdoor,linkedin
     ports:
       - "8000:8000"
     depends_on:
@@ -55,8 +52,6 @@ services:
       DATABASE_URL: postgresql://hirewire:localdev@postgres:5432/hirewire
       LOG_LEVEL: DEBUG
       LOG_FORMAT: console
-      ENABLED_SOURCES: jobspy
-      JOBSPY_SITES: indeed,glassdoor,linkedin
     depends_on:
       postgres:
         condition: service_healthy

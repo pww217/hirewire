@@ -117,10 +117,10 @@ class JobSource(Base):
     )
     source: Mapped[str] = mapped_column(
         String(50), nullable=False
-    )  # 'jobspy', 'greenhouse', etc.
+    )  # 'greenhouse', 'lever', 'ashby'
     source_site: Mapped["Optional[str]"] = mapped_column(
         String(50), nullable=True
-    )  # 'indeed', 'linkedin', etc.
+    )  # same as source for ATS scrapers
     external_id: Mapped["Optional[str]"] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow

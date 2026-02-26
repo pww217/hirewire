@@ -7,13 +7,11 @@ import { useRoute } from 'vue-router'
 import { useJobsStore } from '@/stores/jobs'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useUIStore } from '@/stores/ui'
-import { useApi } from '@/composables/useApi'
 
 const route = useRoute()
 const jobsStore = useJobsStore()
 const favoritesStore = useFavoritesStore()
 const uiStore = useUIStore()
-const api = useApi()
 
 const isSyncing = ref(false)
 
@@ -26,64 +24,28 @@ interface NavItem {
 }
 
 const navItems = computed<NavItem[]>(() => [
-  { path: '/', icon: '📋', label: 'Dashboard', name: 'dashboard' },
-  { 
-    path: '/favorites', 
-    icon: '⭐', 
-    label: 'Favorites', 
+  { path: '/', icon: '📋', label: 'All Jobs', name: 'dashboard' },
+  {
+    path: '/favorites',
+    icon: '⭐',
+    label: 'Favorites',
     name: 'favorites',
     badge: favoritesStore.favoriteCount
   },
-  { path: '/hidden', icon: '👁️', label: 'Hidden', name: 'hidden' },
   { path: '/settings', icon: '⚙️', label: 'Settings', name: 'settings' },
 ])
 
-interface SyncSiteResult {
-  site: string
-  success: boolean
-  count: number
-  error: string | null
-}
-
-interface SyncResponse {
-  status: string
-  message: string
-  new_jobs: number
-  updated_jobs: number
-  duration_ms: number
-  site_results: SyncSiteResult[]
-}
-
 async function syncJobs() {
   if (isSyncing.value) return
-  
+
   isSyncing.value = true
   try {
-    const response = await api.post<SyncResponse>('/api/sync')
-    
-    if (!response) {
-      uiStore.showError('No response from server')
-      return
-    }
-
-    // Refresh job list after sync
-    jobsStore.fetchJobs()
-
-    // Handle different response statuses
-    if (response.status === 'success') {
-      const jobText = response.new_jobs === 1 ? 'job' : 'jobs'
-      uiStore.showSuccess(`Synced ${response.new_jobs} new ${jobText}`)
-    } else if (response.status === 'partial') {
-      // Some sites failed - show warning with details
-      const failures = response.site_results.filter(s => !s.success)
-      const failedSites = failures.map(f => f.site).join(', ')
-      uiStore.showWarning(`Sync completed but ${failedSites} failed`)
-    } else {
-      // Full failure
-      uiStore.showError(response.message || 'Sync failed')
-    }
-  } catch (e) {
-    uiStore.showError('Failed to sync jobs')
+    // Sync endpoint will be replaced by POST /api/companies/sync in Phase 3
+    // For now just refresh the job list
+    await jobsStore.fetchJobs()
+    uiStore.showSuccess('Jobs refreshed')
+  } catch {
+    uiStore.showError('Failed to refresh jobs')
   } finally {
     isSyncing.value = false
   }

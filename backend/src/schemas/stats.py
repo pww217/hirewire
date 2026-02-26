@@ -21,7 +21,6 @@ class StatsResponse(BaseModel):
     jobs_by_source: list[SourceStats] = Field(
         default_factory=list, description="Job counts by source"
     )
-    enabled_configs: int = Field(..., ge=0, description="Number of enabled search configs")
     last_job_added: datetime | None = Field(
         None, description="When the most recent job was added"
     )

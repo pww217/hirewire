@@ -12,7 +12,6 @@
 DB_URL := postgresql://hirewire:localdev@localhost:5432/hirewire
 DOCKER_COMPOSE := docker-compose
 VENV := .venv
-# Use Python 3.12+ (required by python-jobspy)
 SYSTEM_PYTHON := $(shell command -v python3.12 || command -v python3.14 || command -v python3)
 PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
@@ -68,14 +67,13 @@ frontend:
 	@command -v npm >/dev/null 2>&1 || { echo "Error: npm not found. Install Node.js or use 'make serve' for Docker-based dev."; exit 1; }
 	cd frontend && npm run dev
 
-## scrape: Run job scraper manually (via Docker)
-scrape:
+## sync: Run ATS scraper manually (via Docker)
+sync:
 	$(DOCKER_COMPOSE) --profile scraper run --rm scraper
 
-## scrape-local: Run scraper locally (requires DB running, venv)
-scrape-local: venv
+## sync-local: Run ATS scraper locally (requires DB running, venv)
+sync-local: venv
 	DATABASE_URL=$(DB_URL) LOG_LEVEL=DEBUG LOG_FORMAT=console \
-	ENABLED_SOURCES=jobspy JOBSPY_SITES=indeed,glassdoor,linkedin \
 	$(PYTHON) -m scraper.src.main
 
 # =============================================================================
@@ -137,7 +135,7 @@ psql:
 
 ## help: Show this help message
 help:
-	@echo "HireWire Development Commands"
+	@echo "HireWire Development Commands (company-first ATS tracker)"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""

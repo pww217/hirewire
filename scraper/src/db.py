@@ -9,7 +9,7 @@ from typing import Optional
 import asyncpg
 import structlog
 
-from .models.job import Job, JobSource, SearchConfig, TrackedCompany
+from .models.job import Job, JobSource, TrackedCompany
 
 log = structlog.get_logger()
 
@@ -78,20 +78,6 @@ class Database:
     # =========================================================================
     # Configuration queries
     # =========================================================================
-
-    async def get_enabled_search_configs(self) -> list[SearchConfig]:
-        """Get all enabled search configurations."""
-        query = """
-            SELECT id, name, search_term, location, distance,
-                   is_remote, hours_old, results_wanted, country, enabled
-            FROM search_configs
-            WHERE enabled = true
-            ORDER BY id
-        """
-
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(query)
-            return [SearchConfig(**dict(row)) for row in rows]
 
     async def get_enabled_tracked_companies(self) -> list[TrackedCompany]:
         """Get all enabled tracked companies with ATS configuration."""

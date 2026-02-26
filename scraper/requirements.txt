@@ -1,9 +1,6 @@
 # HireWire Scraper Dependencies
 # Pin versions for reproducibility
 
-# Job scraping
-python-jobspy>=1.1.75
-
 # Database
 asyncpg>=0.29.0
 sqlalchemy>=2.0.0

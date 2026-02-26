@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import favorites_router, health_router, jobs_router, search_configs_router, settings_router, stats_router
+from .routers import favorites_router, health_router, jobs_router, settings_router, stats_router
 
 # Configure structured logging
 structlog.configure(
@@ -84,8 +84,8 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(
         title="HireWire API",
-        description="Job search aggregator API",
-        version="0.1.0",
+        description="Company-first job tracker API",
+        version="0.2.0",
         lifespan=lifespan,
         docs_url="/docs" if settings.environment != "production" else None,
         redoc_url="/redoc" if settings.environment != "production" else None,
@@ -130,7 +130,6 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(jobs_router, prefix="/api")
     app.include_router(favorites_router, prefix="/api")
-    app.include_router(search_configs_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
     app.include_router(stats_router, prefix="/api")
 

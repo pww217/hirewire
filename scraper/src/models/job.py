@@ -16,7 +16,7 @@ class JobSource(BaseModel):
     Matches job_sources table in schema.sql.
     """
 
-    source: Literal["jobspy", "ashby", "greenhouse", "lever"]
+    source: Literal["ashby", "greenhouse", "lever"]
     source_site: str = Field(..., max_length=50)
     external_id: Optional[str] = Field(default=None, max_length=255)
 
@@ -75,26 +75,6 @@ class Job(BaseModel):
 
     # Sources (for job_sources table)
     sources: list[JobSource] = Field(default_factory=list)
-
-
-class SearchConfig(BaseModel):
-    """Search configuration from database.
-
-    Matches search_configs table in schema.sql.
-    """
-
-    id: int
-    name: str = Field(..., max_length=100)
-    search_term: str = Field(..., max_length=500)
-    location: Optional[str] = Field(default=None, max_length=255)
-    distance: int = 50
-    is_remote: bool = False
-    hours_old: int = 48
-    results_wanted: int = 100
-    country: str = Field(default="USA", max_length=10)
-    enabled: bool = True
-
-    model_config = {"from_attributes": True}
 
 
 class TrackedCompany(BaseModel):

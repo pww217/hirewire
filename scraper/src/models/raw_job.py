@@ -17,7 +17,7 @@ class RawJob(BaseModel):
     """
 
     # Source identification
-    source: Literal["jobspy", "ashby", "greenhouse", "lever"]
+    source: Literal["ashby", "greenhouse", "lever"]
     source_site: str = Field(..., max_length=50)
     external_id: Optional[str] = Field(default=None, max_length=255)
 
@@ -52,7 +52,7 @@ class RawJob(BaseModel):
     # Dates
     date_posted: Optional[datetime] = None
 
-    # Company metadata (from JobSpy)
+    # Company metadata (not available from all ATS providers)
     company_size: Optional[str] = Field(default=None, max_length=50)
     company_industry: Optional[str] = Field(default=None, max_length=100)
 

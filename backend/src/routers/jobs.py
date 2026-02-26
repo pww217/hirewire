@@ -3,7 +3,6 @@
 Implements:
 - GET /api/jobs - List jobs with filters, pagination, sorting
 - GET /api/jobs/{id} - Get single job with full description
-- POST /api/sync - Trigger manual job sync/scrape
 """
 
 from datetime import datetime
@@ -11,7 +10,6 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -25,26 +23,6 @@ from ..schemas.job import (
     JobResponse,
     JobType,
 )
-
-
-class SyncSiteResult(BaseModel):
-    """Result from scraping a single site."""
-
-    site: str
-    success: bool
-    count: int = 0
-    error: str | None = None
-
-
-class SyncResponse(BaseModel):
-    """Response model for sync endpoint."""
-
-    status: str
-    message: str
-    new_jobs: int = 0
-    updated_jobs: int = 0
-    duration_ms: int = 0
-    site_results: list[SyncSiteResult] = []
 
 router = APIRouter(tags=["jobs"])
 log = structlog.get_logger()
@@ -439,77 +417,3 @@ async def get_job(
     )
 
 
-@router.post("/sync", response_model=SyncResponse)
-async def sync_jobs() -> SyncResponse:
-    """Trigger a manual job sync/scrape.
-
-    Runs the scraper to fetch new jobs from all configured sources.
-    This is the same process that runs on the scheduled cron job.
-
-    Returns:
-        SyncResponse with status, job counts, and per-site results
-    """
-    log.info("sync_jobs_request")
-
-    try:
-        # Import and run the scraper main function
-        from scraper.src.main import main as scraper_main
-
-        result = await scraper_main()
-
-        # Convert scraper SiteResult to API SyncSiteResult
-        site_results = [
-            SyncSiteResult(
-                site=sr.site,
-                success=sr.success,
-                count=sr.count,
-                error=sr.error,
-            )
-            for sr in result.site_results
-        ]
-
-        # Determine overall status
-        any_failures = any(not sr.success for sr in result.site_results)
-
-        if result.success:
-            if any_failures:
-                # Partial success - some sites failed
-                failed_sites = [sr.site for sr in result.site_results if not sr.success]
-                status = "partial"
-                message = f"Sync completed with errors on: {', '.join(failed_sites)}"
-            else:
-                status = "success"
-                message = f"Synced {result.new_jobs} new jobs"
-        else:
-            status = "error"
-            message = result.error or "Sync failed"
-
-        log.info(
-            "sync_jobs_complete",
-            status=status,
-            new_jobs=result.new_jobs,
-            duration_ms=result.duration_ms,
-            site_results=[(sr.site, sr.success, sr.count) for sr in site_results],
-        )
-
-        return SyncResponse(
-            status=status,
-            message=message,
-            new_jobs=result.new_jobs,
-            updated_jobs=result.updated_jobs,
-            duration_ms=result.duration_ms,
-            site_results=site_results,
-        )
-
-    except ImportError as e:
-        log.error("sync_jobs_import_error", error=str(e))
-        raise HTTPException(
-            status_code=500,
-            detail="Scraper module not available. Is the scraper installed?",
-        )
-    except Exception as e:
-        log.exception("sync_jobs_error", error=str(e))
-        raise HTTPException(
-            status_code=500,
-            detail=f"Sync failed: {str(e)}",
-        )

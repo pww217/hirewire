@@ -1,7 +1,7 @@
 """Job scrapers for HireWire.
 
-This module provides the base scraper interface and implementations
-for various job sources (JobSpy, Ashby, etc.).
+This module provides the base scraper interface and ATS implementations
+(Ashby, Greenhouse, Lever).
 """
 
 from abc import ABC, abstractmethod
@@ -24,7 +24,7 @@ class BaseScraper(ABC):
     @property
     @abstractmethod
     def source_name(self) -> str:
-        """Return the source identifier (e.g., 'jobspy', 'ashby')."""
+        """Return the source identifier (e.g., 'ashby', 'greenhouse', 'lever')."""
         pass
 
     @abstractmethod
@@ -60,12 +60,9 @@ class RateLimitError(ScrapingError):
         super().__init__(source, f"Rate limited, retry after {retry_after}s")
 
 
-from .jobspy_scraper import JobSpyScraper
-
 __all__ = [
     "BaseScraper",
     "ScraperError",
     "ScrapingError",
     "RateLimitError",
-    "JobSpyScraper",
 ]

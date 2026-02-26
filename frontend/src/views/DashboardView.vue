@@ -168,11 +168,6 @@ function handleJobClick(jobId: number) {
             <span class="stat-label">Updated</span>
             <span class="stat-value">{{ statsStore.lastUpdatedFormatted }}</span>
           </span>
-          <span class="stat-divider">|</span>
-          <span class="stat-item">
-            <span class="stat-value">{{ statsStore.enabledConfigs }}</span>
-            <span class="stat-label">active searches</span>
-          </span>
           <button class="stats-toggle" :class="{ expanded: showStatsDetails }">
             {{ showStatsDetails ? '▲' : '▼' }}
           </button>

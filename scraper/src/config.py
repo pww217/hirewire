@@ -1,7 +1,8 @@
 """Scraper configuration from environment variables."""
 
-from pydantic_settings import BaseSettings
 from typing import Literal
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -11,8 +12,7 @@ class Settings(BaseSettings):
     database_url: str
 
     # Scraping configuration
-    enabled_sources: str = "jobspy"  # Comma-separated: jobspy,ashby
-    jobspy_sites: str = "indeed,glassdoor"  # Comma-separated
+    scrape_schedule: str = "09:00,17:00"  # Comma-separated HH:MM times (local)
     scrape_timeout_seconds: int = 300
     http_timeout_seconds: int = 30
 
@@ -30,14 +30,9 @@ class Settings(BaseSettings):
         case_sensitive = False
 
     @property
-    def enabled_sources_list(self) -> list[str]:
-        """Parse enabled sources into list."""
-        return [s.strip() for s in self.enabled_sources.split(",") if s.strip()]
-
-    @property
-    def jobspy_sites_list(self) -> list[str]:
-        """Parse JobSpy sites into list."""
-        return [s.strip() for s in self.jobspy_sites.split(",") if s.strip()]
+    def scrape_schedule_list(self) -> list[str]:
+        """Parse schedule into list of HH:MM strings."""
+        return [s.strip() for s in self.scrape_schedule.split(",") if s.strip()]
 
 
 settings = Settings()

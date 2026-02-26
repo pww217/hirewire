@@ -15,7 +15,6 @@ export const useStatsStore = defineStore('stats', () => {
   const totalJobs = computed(() => stats.value?.total_jobs || 0)
   const jobsLast24h = computed(() => stats.value?.jobs_last_24h || 0)
   const jobsLast7d = computed(() => stats.value?.jobs_last_7d || 0)
-  const enabledConfigs = computed(() => stats.value?.enabled_configs || 0)
   const lastJobAdded = computed(() => stats.value?.last_job_added || null)
   const jobsBySource = computed(() => stats.value?.jobs_by_source || [])
 
@@ -66,7 +65,6 @@ export const useStatsStore = defineStore('stats', () => {
     totalJobs,
     jobsLast24h,
     jobsLast7d,
-    enabledConfigs,
     lastJobAdded,
     lastUpdatedFormatted,
     jobsBySource,

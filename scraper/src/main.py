@@ -3,7 +3,7 @@
 This module orchestrates the job scraping workflow:
 1. Load configuration
 2. Initialize database connection
-3. Fetch jobs from enabled sources (JobSpy, ATS APIs)
+3. Fetch jobs from ATS APIs (Greenhouse, Lever, Ashby)
 4. Normalize and deduplicate
 5. Insert new jobs, update last_seen for existing
 6. Mark stale jobs as inactive
@@ -12,7 +12,7 @@ This module orchestrates the job scraping workflow:
 import asyncio
 import logging
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import structlog
@@ -21,18 +21,6 @@ from .config import settings
 from .db import Database, DatabaseConnectionError
 from .dedup import Deduplicator, normalize_jobs
 from .models.raw_job import RawJob
-from .scrapers import JobSpyScraper, ScrapingError
-
-
-@dataclass
-class SiteResult:
-    """Result from scraping a single site."""
-
-    site: str
-    attempted: bool = False
-    success: bool = False
-    count: int = 0
-    error: str | None = None
 
 
 @dataclass
@@ -43,7 +31,6 @@ class ScrapeResult:
     new_jobs: int = 0
     updated_jobs: int = 0
     duration_ms: int = 0
-    site_results: list[SiteResult] = field(default_factory=list)
     error: str | None = None
 
 
@@ -97,8 +84,6 @@ async def main() -> ScrapeResult:
 
     log.info(
         "scraper_starting",
-        enabled_sources=settings.enabled_sources_list,
-        jobspy_sites=settings.jobspy_sites_list,
         environment=settings.environment,
     )
 
@@ -120,77 +105,24 @@ async def main() -> ScrapeResult:
 
     try:
         # =====================================================================
-        # STEP 2: Load search configurations from database
+        # STEP 2: Load tracked companies from database
         # =====================================================================
-        search_configs = await db.get_enabled_search_configs()
         tracked_companies = await db.get_enabled_tracked_companies()
 
-        if not search_configs and not tracked_companies:
+        if not tracked_companies:
             log.warning(
-                "no_search_configs",
-                message="No enabled search configs or tracked companies found",
+                "no_tracked_companies",
+                message="No enabled tracked companies found -- add companies via the UI",
             )
 
-        log.info(
-            "configs_loaded",
-            search_configs=len(search_configs),
-            tracked_companies=len(tracked_companies),
-        )
+        log.info("companies_loaded", tracked_companies=len(tracked_companies))
 
         # =====================================================================
-        # STEP 3: Scrape from all enabled sources
+        # STEP 3: Scrape from all tracked companies
         # =====================================================================
         raw_jobs: list[RawJob] = []
 
-        # 3a. Scrape from JobSpy (Indeed/Glassdoor/LinkedIn)
-        # Track results per site
-        if "jobspy" in settings.enabled_sources_list and search_configs:
-            # Initialize per-site results
-            for site in settings.jobspy_sites_list:
-                result.site_results.append(SiteResult(site=site, attempted=True))
-
-            try:
-                scraper = JobSpyScraper(
-                    sites=settings.jobspy_sites_list,
-                    search_configs=search_configs,
-                )
-                jobs = await scraper.fetch()
-                raw_jobs.extend(jobs)
-
-                # Count jobs per site from source_site field
-                site_counts: dict[str, int] = {}
-                for job in jobs:
-                    site = job.source_site.lower()
-                    site_counts[site] = site_counts.get(site, 0) + 1
-
-                # Update site results
-                for site_result in result.site_results:
-                    count = site_counts.get(site_result.site, 0)
-                    site_result.count = count
-                    site_result.success = True  # No error means success
-                    if count == 0:
-                        # Site returned nothing - might be rate limited
-                        site_result.error = "No results (may be rate limited)"
-
-                log.info("jobspy_scrape_complete", count=len(jobs), per_site=site_counts)
-
-            except ScrapingError as e:
-                # Mark all sites as failed
-                for site_result in result.site_results:
-                    site_result.success = False
-                    site_result.error = str(e)
-                log.error("jobspy_scrape_failed", error=str(e))
-
-            except Exception as e:
-                # Mark all sites as failed
-                error_msg = f"Unexpected: {str(e)}"
-                for site_result in result.site_results:
-                    site_result.success = False
-                    site_result.error = error_msg
-                log.exception("jobspy_unexpected_error", error=str(e))
-
-        # 3b. TODO: Add Ashby scraper when tracked_companies are configured
-        # This would iterate over tracked_companies with ats_type == "ashby"
+        # TODO (Phase 2): iterate tracked_companies and call ATS scrapers
 
         # =====================================================================
         # STEP 4: Normalize and deduplicate
@@ -268,17 +200,11 @@ async def main() -> ScrapeResult:
         result.updated_jobs = updated_jobs_count
         result.duration_ms = duration_ms
 
-        # Check if any sites had errors
-        any_success = any(sr.success for sr in result.site_results)
-        result.success = any_success  # Partial success is still success
+        result.success = True
 
         log.info(
             "scraper_complete",
             duration_ms=duration_ms,
-            site_results=[
-                {"site": sr.site, "success": sr.success, "count": sr.count, "error": sr.error}
-                for sr in result.site_results
-            ],
             total_raw=len(raw_jobs),
             total_new=new_jobs_count,
             total_updated=updated_jobs_count,
