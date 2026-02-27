@@ -34,6 +34,7 @@ SortOrder = Literal["asc", "desc"]
 
 def build_job_query(
     q: str | None = None,
+    company_id: int | None = None,
     location: str | None = None,
     is_remote: bool | None = None,
     company_size: list[str] | None = None,
@@ -69,6 +70,10 @@ def build_job_query(
         .outerjoin(UserJobState, Job.id == UserJobState.job_id)
         .where(Job.is_active == True)  # noqa: E712
     )
+
+    # Company filter - scope jobs to a single tracked company
+    if company_id is not None:
+        query = query.where(Job.company_id == company_id)
 
     # Full-text search using PostgreSQL ts_query
     # Commas are treated as OR (any term matches)
@@ -235,6 +240,7 @@ async def list_jobs(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     per_page: int = Query(50, ge=1, le=100, description="Items per page"),
     q: str | None = Query(None, description="Search query. Use commas for OR (e.g., 'python, java' matches either)"),
+    company_id: int | None = Query(None, description="Filter jobs by tracked company ID"),
     location: str | None = Query(None, description="Location filter"),
     is_remote: bool | None = Query(None, description="Remote jobs only"),
     company_size: list[CompanySize] | None = Query(
@@ -271,6 +277,7 @@ async def list_jobs(
     # Build base query with filters
     query = build_job_query(
         q=q,
+        company_id=company_id,
         location=location,
         is_remote=is_remote,
         company_size=company_size,

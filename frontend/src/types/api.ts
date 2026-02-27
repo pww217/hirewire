@@ -104,6 +104,7 @@ export interface JobListParams {
   page?: number
   per_page?: number
   q?: string
+  company_id?: number | null
   location?: string
   is_remote?: boolean
   company_size?: CompanySize[]
@@ -155,6 +156,26 @@ export interface TrackedCompanyCreate {
   website?: string | null
   ats_type?: ATSType | null
   ats_identifier?: string | null
+  enabled?: boolean
+}
+
+export interface TrackedCompanyUpdate {
+  name?: string
+  website?: string | null
+  ats_type?: ATSType | null
+  ats_identifier?: string | null
+  enabled?: boolean
+}
+
+export interface CompanyDetectRequest {
+  url: string
+}
+
+export interface CompanyDetectResponse {
+  url: string
+  ats_type: ATSType | null
+  ats_identifier: string | null
+  detected: boolean
 }
 
 // ============================================================================

@@ -22,7 +22,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import favorites_router, health_router, jobs_router, settings_router, stats_router
+from .routers import (
+    companies_router,
+    favorites_router,
+    health_router,
+    jobs_router,
+    settings_router,
+    stats_router,
+)
 
 # Configure structured logging
 structlog.configure(
@@ -128,6 +135,7 @@ def create_app() -> FastAPI:
 
     # Include API routers
     app.include_router(health_router)
+    app.include_router(companies_router)
     app.include_router(jobs_router, prefix="/api")
     app.include_router(favorites_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
