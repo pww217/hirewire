@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import type { Job, JobDetail, JobListParams, JobListResponse, CompanySize } from '@/types/api'
 import { useApi } from '@/composables/useApi'
 import { useSettingsStore } from './settings'
+import { useCompaniesStore } from './companies'
 
 export type SortBy = 'date_posted' | 'company' | 'title'
 export type SortOrder = 'asc' | 'desc'
@@ -77,6 +78,7 @@ export const useJobsStore = defineStore('jobs', () => {
     
     try {
       const settingsStore = useSettingsStore()
+      const companiesStore = useCompaniesStore()
       
       const params: JobListParams & { excluded_companies?: string[], excluded_keywords?: string[] } = {
         page: page.value,
@@ -85,6 +87,11 @@ export const useJobsStore = defineStore('jobs', () => {
         sort_order: sortOrder.value,
         include_hidden: false,
         favorites_only: false,
+      }
+
+      // Scope to selected company if one is active
+      if (companiesStore.selectedCompanyId !== null) {
+        params.company_id = companiesStore.selectedCompanyId
       }
       
       // Apply filters

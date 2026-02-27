@@ -1,126 +1,148 @@
 <script setup lang="ts">
 /**
- * Sidebar - Main navigation sidebar
+ * Sidebar - Company-first navigation
+ * Shows tracked companies with job counts, plus All Jobs / Favorites entries.
  */
-import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { useJobsStore } from '@/stores/jobs'
+import { computed, ref, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useCompaniesStore } from '@/stores/companies'
 import { useFavoritesStore } from '@/stores/favorites'
-import { useUIStore } from '@/stores/ui'
+import { useJobsStore } from '@/stores/jobs'
 
 const route = useRoute()
-const jobsStore = useJobsStore()
+const router = useRouter()
+const companiesStore = useCompaniesStore()
 const favoritesStore = useFavoritesStore()
-const uiStore = useUIStore()
+const jobsStore = useJobsStore()
 
-const isSyncing = ref(false)
+const emit = defineEmits<{ 'open-add-company': [] }>()
 
-interface NavItem {
-  path: string
-  icon: string
-  label: string
-  name: string
-  badge?: number
-}
+const companySearch = ref('')
 
-const navItems = computed<NavItem[]>(() => [
-  { path: '/', icon: '📋', label: 'All Jobs', name: 'dashboard' },
-  {
-    path: '/favorites',
-    icon: '⭐',
-    label: 'Favorites',
-    name: 'favorites',
-    badge: favoritesStore.favoriteCount
-  },
-  { path: '/settings', icon: '⚙️', label: 'Settings', name: 'settings' },
-])
+const filteredCompanies = computed(() => {
+  const q = companySearch.value.trim().toLowerCase()
+  if (!q) return companiesStore.companies
+  return companiesStore.companies.filter((c) =>
+    c.name.toLowerCase().includes(q)
+  )
+})
 
-async function syncJobs() {
-  if (isSyncing.value) return
-
-  isSyncing.value = true
-  try {
-    // Sync endpoint will be replaced by POST /api/companies/sync in Phase 3
-    // For now just refresh the job list
-    await jobsStore.fetchJobs()
-    uiStore.showSuccess('Jobs refreshed')
-  } catch {
-    uiStore.showError('Failed to refresh jobs')
-  } finally {
-    isSyncing.value = false
+function selectCompany(id: number | null) {
+  companiesStore.selectCompany(id)
+  // Navigate to dashboard when selecting a company
+  if (route.name !== 'dashboard') {
+    router.push('/')
   }
 }
+
+function isCompanyActive(id: number) {
+  return route.name === 'dashboard' && companiesStore.selectedCompanyId === id
+}
+
+const isAllJobsActive = computed(
+  () => route.name === 'dashboard' && companiesStore.selectedCompanyId === null
+)
+
+onMounted(() => {
+  companiesStore.fetchCompanies()
+})
+
+// Re-fetch jobs whenever the selected company changes
+watch(() => companiesStore.selectedCompanyId, () => {
+  jobsStore.fetchJobs(true)
+})
 </script>
 
 <template>
   <nav class="sidebar">
+    <!-- Brand -->
     <div class="sidebar-header">
-      <RouterLink to="/" class="sidebar-brand">
+      <RouterLink to="/" class="sidebar-brand" @click="selectCompany(null)">
         <span class="sidebar-logo">💼</span>
         <span class="sidebar-title">HireWire</span>
       </RouterLink>
     </div>
-    
-    <div class="sidebar-nav">
+
+    <!-- Company search -->
+    <div class="sidebar-search">
+      <input
+        v-model="companySearch"
+        class="search-input"
+        type="text"
+        placeholder="Search companies..."
+        autocomplete="off"
+      />
+    </div>
+
+    <!-- Static nav items -->
+    <div class="sidebar-nav-static">
       <RouterLink
-        v-for="item in navItems"
-        :key="item.path"
-        :to="item.path"
+        to="/"
         class="nav-link"
-        :class="{ active: route.name === item.name }"
+        :class="{ active: isAllJobsActive }"
+        @click="selectCompany(null)"
       >
-        <span class="nav-link-icon">{{ item.icon }}</span>
-        <span class="nav-link-label">{{ item.label }}</span>
-        
-        <!-- Badge for favorites count -->
-        <span 
-          v-if="item.badge && item.badge > 0"
-          class="nav-link-badge"
-        >
-          {{ item.badge }}
+        <span class="nav-icon">📋</span>
+        <span class="nav-label">All Jobs</span>
+        <span v-if="jobsStore.total > 0 && isAllJobsActive" class="nav-badge">
+          {{ jobsStore.total.toLocaleString() }}
+        </span>
+      </RouterLink>
+
+      <RouterLink to="/favorites" class="nav-link" :class="{ active: route.name === 'favorites' }">
+        <span class="nav-icon">⭐</span>
+        <span class="nav-label">Favorites</span>
+        <span v-if="favoritesStore.favoriteCount > 0" class="nav-badge">
+          {{ favoritesStore.favoriteCount }}
         </span>
       </RouterLink>
     </div>
-    
-    <!-- Stats -->
-    <div class="sidebar-stats">
-      <div class="stat">
-        <span class="stat-value">{{ jobsStore.total.toLocaleString() }}</span>
-        <span class="stat-label">Total Jobs</span>
-      </div>
-      <div class="stat">
-        <span class="stat-value">{{ favoritesStore.favoriteCount }}</span>
-        <span class="stat-label">Favorites</span>
-      </div>
-    </div>
-    
-    <!-- Sync button -->
-    <div class="sidebar-sync">
-      <button 
-        class="sync-btn"
-        :class="{ syncing: isSyncing }"
-        :disabled="isSyncing"
-        @click="syncJobs"
-      >
-        <span class="sync-icon" :class="{ spinning: isSyncing }">🔄</span>
-        <span class="sync-text">{{ isSyncing ? 'Syncing...' : 'Sync Jobs' }}</span>
+
+    <!-- Companies section -->
+    <div class="section-header">
+      <span class="section-label">Companies</span>
+      <button class="add-btn" title="Add company" @click="emit('open-add-company')">
+        <span>+</span>
       </button>
     </div>
-    
-    <!-- Auto-refresh status -->
-    <div class="sidebar-footer">
-      <div class="refresh-status">
-        <span class="refresh-indicator" :class="{ active: jobsStore.autoRefreshEnabled }"></span>
-        <span class="refresh-text">
-          {{ jobsStore.autoRefreshEnabled ? 'Auto-refresh on' : 'Auto-refresh off' }}
+
+    <!-- Company list -->
+    <div class="company-list">
+      <div
+        v-if="companiesStore.isLoading && companiesStore.companies.length === 0"
+        class="company-list-empty"
+      >
+        Loading...
+      </div>
+
+      <div
+        v-else-if="filteredCompanies.length === 0"
+        class="company-list-empty"
+      >
+        <span v-if="companySearch">No match</span>
+        <span v-else>No companies yet.<br />Click + to add one.</span>
+      </div>
+
+      <button
+        v-for="company in filteredCompanies"
+        :key="company.id"
+        class="company-item"
+        :class="{ active: isCompanyActive(company.id), disabled: !company.enabled }"
+        @click="selectCompany(company.id)"
+      >
+        <span class="company-name">{{ company.name }}</span>
+        <span v-if="company.job_count > 0" class="company-badge">
+          {{ company.job_count }}
         </span>
-      </div>
-      <button 
-        class="refresh-toggle"
-        @click="jobsStore.toggleAutoRefresh()"
-      >
-        {{ jobsStore.autoRefreshEnabled ? 'Pause' : 'Resume' }}
       </button>
+    </div>
+
+    <!-- Footer -->
+    <div class="sidebar-footer">
+      <RouterLink to="/settings" class="nav-link footer-nav-link" :class="{ active: route.name === 'settings' }">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Settings</span>
+      </RouterLink>
     </div>
   </nav>
 </template>
@@ -136,12 +158,15 @@ async function syncJobs() {
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0; /* Prevent sidebar from shrinking */
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
+/* Header */
 .sidebar-header {
   padding: var(--space-4);
   border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .sidebar-brand {
@@ -161,23 +186,53 @@ async function syncJobs() {
   color: var(--text-primary);
 }
 
-.sidebar-nav {
-  flex: 1;
-  padding: var(--space-3);
-  overflow-y: auto;
+/* Search */
+.sidebar-search {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.search-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-input:focus {
+  border-color: var(--border-focus);
+}
+
+/* Static nav (All Jobs, Favorites) */
+.sidebar-nav-static {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .nav-link {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   text-decoration: none;
+  font-size: var(--text-sm);
   font-weight: 500;
   transition: all var(--transition-fast);
   margin-bottom: var(--space-1);
+  cursor: pointer;
 }
 
 .nav-link:hover {
@@ -190,154 +245,150 @@ async function syncJobs() {
   color: var(--accent-primary);
 }
 
-.nav-link-icon {
-  font-size: var(--text-xl);
-  width: 24px;
+.nav-icon {
+  font-size: 1rem;
+  width: 20px;
   text-align: center;
   flex-shrink: 0;
 }
 
-.nav-link-label {
+.nav-label {
   flex: 1;
 }
 
-.nav-link-badge {
-  padding: 2px 8px;
+.nav-badge {
+  padding: 1px 7px;
   background: var(--accent-primary);
   color: white;
   font-size: var(--text-xs);
   font-weight: 600;
   border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
 }
 
-.sidebar-stats {
-  padding: var(--space-4);
-  border-top: 1px solid var(--border-color);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
+/* Companies section header */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  flex-shrink: 0;
 }
 
-.sidebar-sync {
-  padding: var(--space-3);
-  border-top: 1px solid var(--border-color);
+.section-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 
-.sync-btn {
-  width: 100%;
+.add-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
   transition: all var(--transition-fast);
+  line-height: 1;
 }
 
-.sync-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--border-focus);
-}
-
-.sync-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.sync-btn.syncing {
+.add-btn:hover {
   background: var(--accent-primary);
   border-color: var(--accent-primary);
   color: white;
 }
 
-.sync-icon {
-  font-size: var(--text-base);
+/* Company list */
+.company-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
 }
 
-.sync-icon.spinning {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.stat {
-  text-align: center;
-}
-
-.stat-value {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: var(--text-xl);
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.stat-label {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.sidebar-footer {
+.company-list-empty {
   padding: var(--space-3);
-  border-top: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.refresh-status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.refresh-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-
-.refresh-indicator.active {
-  background: var(--accent-success);
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.refresh-text {
-  font-size: var(--text-xs);
   color: var(--text-muted);
-}
-
-.refresh-toggle {
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
   font-size: var(--text-xs);
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  text-align: center;
+  line-height: 1.5;
 }
 
-.refresh-toggle:hover {
+.company-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+  margin-bottom: 2px;
+}
+
+.company-item:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.company-item.active {
+  background: var(--bg-active);
+  color: var(--accent-primary);
+}
+
+.company-item.disabled {
+  opacity: 0.5;
+}
+
+.company-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-badge {
+  padding: 1px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 9px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.company-item.active .company-badge {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+}
+
+/* Footer */
+.sidebar-footer {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.footer-nav-link {
+  margin-bottom: 0;
 }
 </style>

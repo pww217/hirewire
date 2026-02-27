@@ -18,6 +18,7 @@ import { useFavoritesStore } from '@/stores/favorites'
 import { useUIStore } from '@/stores/ui'
 import { useStatsStore } from '@/stores/stats'
 import { useViewedStore } from '@/stores/viewed'
+import { useCompaniesStore } from '@/stores/companies'
 import { useKeyboardNav } from '@/composables/useKeyboardNav'
 import SearchBar from '@/components/SearchBar.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
@@ -30,6 +31,7 @@ const favoritesStore = useFavoritesStore()
 const uiStore = useUIStore()
 const statsStore = useStatsStore()
 const viewedStore = useViewedStore()
+const companiesStore = useCompaniesStore()
 
 const showStatsDetails = ref(false)
 const searchBarRef = ref<{ focus: () => void } | null>(null)
@@ -119,7 +121,12 @@ function handleJobClick(jobId: number) {
     <!-- Header -->
     <header class="dashboard-header">
       <div class="header-top">
-        <h1 class="dashboard-title">Job Search</h1>
+        <h1 class="dashboard-title">
+          <span v-if="companiesStore.selectedCompany">
+            {{ companiesStore.selectedCompany.name }}
+          </span>
+          <span v-else>All Jobs</span>
+        </h1>
         <div class="dashboard-search">
           <SearchBar 
             ref="searchBarRef"

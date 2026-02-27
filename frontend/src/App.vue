@@ -3,14 +3,17 @@
  * Main application component
  * Layout: Sidebar + Main content area
  */
-import { onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useJobsStore } from '@/stores/jobs'
 import { useSettingsStore } from '@/stores/settings'
 import Sidebar from '@/components/Sidebar.vue'
+import AddCompanyModal from '@/components/AddCompanyModal.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
 
 const jobsStore = useJobsStore()
 const settingsStore = useSettingsStore()
+
+const showAddCompany = ref(false)
 
 onMounted(async () => {
   // Load user settings so exclusions are available for job fetching
@@ -24,11 +27,16 @@ onUnmounted(() => {
 
 <template>
   <div class="app-container">
-    <Sidebar />
+    <Sidebar @open-add-company="showAddCompany = true" />
     <main class="main-content">
       <RouterView />
     </main>
     <ToastContainer />
+    <AddCompanyModal
+      v-if="showAddCompany"
+      @close="showAddCompany = false"
+      @created="showAddCompany = false"
+    />
   </div>
 </template>
 
