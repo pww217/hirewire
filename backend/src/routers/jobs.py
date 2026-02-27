@@ -43,22 +43,23 @@ def build_job_query(
     posted_after: datetime | None = None,
     include_hidden: bool = False,
     favorites_only: bool = False,
-    excluded_companies: list[str] | None = None,
+    preferred_locations: list[str] | None = None,
+    included_keywords: list[str] | None = None,
     excluded_keywords: list[str] | None = None,
 ) -> Select:
     """Build the job listing query with all filters.
 
     Args:
         q: Full-text search query
-        location: Location filter (city/state)
+        location: Location filter (city/state) — explicit override
         is_remote: Remote jobs only filter
         company_size: Company size filter (list)
         job_type: Job type filter
-        source: Source filter (indeed, linkedin, etc.)
+        source: Source filter
         posted_after: Filter jobs posted after date
         include_hidden: Include hidden jobs
         favorites_only: Only show favorites
-        excluded_companies: List of company names to exclude
+        preferred_locations: Default location list from settings (OR'd together)
         excluded_keywords: List of keywords to exclude from titles
 
     Returns:
@@ -95,14 +96,21 @@ def build_job_query(
             search_query = combined
         query = query.where(Job.search_vector.op("@@")(search_query))
 
-    # Location filter (case-insensitive partial match)
+    # Location filter — explicit query param takes precedence over preferred_locations
     if location:
-        location_filter = or_(
+        query = query.where(or_(
             Job.location_city.ilike(f"%{location}%"),
             Job.location_state.ilike(f"%{location}%"),
             Job.location_raw.ilike(f"%{location}%"),
-        )
-        query = query.where(location_filter)
+        ))
+    elif preferred_locations:
+        # OR across all preferred locations
+        location_clauses = []
+        for loc in preferred_locations:
+            location_clauses.append(Job.location_city.ilike(f"%{loc}%"))
+            location_clauses.append(Job.location_state.ilike(f"%{loc}%"))
+            location_clauses.append(Job.location_raw.ilike(f"%{loc}%"))
+        query = query.where(or_(*location_clauses))
 
     # Remote filter
     if is_remote is True:
@@ -140,10 +148,9 @@ def build_job_query(
     if favorites_only:
         query = query.where(UserJobState.is_favorite == True)  # noqa: E712
 
-    # Excluded companies filter (case-insensitive)
-    if excluded_companies:
-        for company in excluded_companies:
-            query = query.where(~Job.company.ilike(f"%{company}%"))
+    # Included keywords filter — title must match at least one (OR)
+    if included_keywords:
+        query = query.where(or_(*[Job.title.ilike(f"%{kw}%") for kw in included_keywords]))
 
     # Excluded keywords filter (case-insensitive title match)
     if excluded_keywords:
@@ -253,8 +260,11 @@ async def list_jobs(
     sort_order: SortOrder = Query("desc", description="Sort order"),
     include_hidden: bool = Query(False, description="Include hidden jobs"),
     favorites_only: bool = Query(False, description="Only show favorites"),
-    excluded_companies: list[str] | None = Query(
-        None, description="Companies to exclude from results"
+    preferred_locations: list[str] | None = Query(
+        None, description="Preferred locations from settings (OR filter)"
+    ),
+    included_keywords: list[str] | None = Query(
+        None, description="Title must contain at least one of these keywords (OR filter)"
     ),
     excluded_keywords: list[str] | None = Query(
         None, description="Keywords to exclude from job titles"
@@ -286,7 +296,8 @@ async def list_jobs(
         posted_after=posted_after,
         include_hidden=include_hidden,
         favorites_only=favorites_only,
-        excluded_companies=excluded_companies,
+        preferred_locations=preferred_locations,
+        included_keywords=included_keywords,
         excluded_keywords=excluded_keywords,
     )
 

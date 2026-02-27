@@ -52,6 +52,8 @@ db:
 ## db-migrate: Apply schema migrations to existing database
 db-migrate: db-wait
 	$(DOCKER_COMPOSE) exec postgres psql -U hirewire -d hirewire -f /dev/stdin < shared/migrations/001_company_first.sql
+	$(DOCKER_COMPOSE) exec postgres psql -U hirewire -d hirewire -f /dev/stdin < shared/migrations/002_settings_locations.sql
+	$(DOCKER_COMPOSE) exec postgres psql -U hirewire -d hirewire -f /dev/stdin < shared/migrations/003_included_keywords.sql
 	@echo "Migration complete."
 
 ## db-reset: Destroy and recreate the database (DELETES ALL DATA)

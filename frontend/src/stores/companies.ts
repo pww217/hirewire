@@ -73,6 +73,21 @@ export const useCompaniesStore = defineStore('companies', () => {
     }
   }
 
+  async function syncCompany(id: number): Promise<void> {
+    try {
+      await api.post(`/api/companies/${id}/sync`, undefined, { showErrorToast: false })
+    } catch {
+      // Best-effort — scraper may not be reachable
+    }
+    // Refresh company list to pick up updated job_count
+    await fetchCompanies()
+    // If this company is selected, also refresh the jobs list
+    if (selectedCompanyId.value === id) {
+      const { useJobsStore } = await import('./jobs')
+      useJobsStore().fetchJobs(true)
+    }
+  }
+
   return {
     companies,
     selectedCompanyId,
@@ -86,5 +101,6 @@ export const useCompaniesStore = defineStore('companies', () => {
     createCompany,
     updateCompany,
     deleteCompany,
+    syncCompany,
   }
 })

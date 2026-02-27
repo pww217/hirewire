@@ -80,7 +80,7 @@ export const useJobsStore = defineStore('jobs', () => {
       const settingsStore = useSettingsStore()
       const companiesStore = useCompaniesStore()
       
-      const params: JobListParams & { excluded_companies?: string[], excluded_keywords?: string[] } = {
+      const params: JobListParams & { preferred_locations?: string[], included_keywords?: string[], excluded_keywords?: string[] } = {
         page: page.value,
         per_page: perPage.value,
         sort_by: sortBy.value,
@@ -123,9 +123,12 @@ export const useJobsStore = defineStore('jobs', () => {
         }
       }
       
-      // Apply exclusion filters from user settings
-      if (settingsStore.excludedCompanies.length > 0) {
-        params.excluded_companies = settingsStore.excludedCompanies
+      // Apply settings-based filters (only when no explicit location filter is active and not in remote-only mode)
+      if (!filters.value.location && !settingsStore.defaultRemote && settingsStore.preferredLocations.length > 0) {
+        params.preferred_locations = settingsStore.preferredLocations
+      }
+      if (settingsStore.includedKeywords.length > 0) {
+        params.included_keywords = settingsStore.includedKeywords
       }
       if (settingsStore.excludedKeywords.length > 0) {
         params.excluded_keywords = settingsStore.excludedKeywords

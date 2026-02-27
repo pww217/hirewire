@@ -158,6 +158,31 @@ async def delete_company(
     log.info("company_deleted", id=company_id, name=company.name)
 
 
+@router.post("/sync-all")
+async def sync_all_companies() -> dict:
+    """Trigger a full scrape of all enabled companies.
+
+    Calls the scraper service's /trigger endpoint.
+    """
+    scraper_url = getattr(settings, "scraper_url", None)
+    if not scraper_url:
+        raise HTTPException(
+            status_code=503,
+            detail="Scraper service URL not configured (SCRAPER_URL env var).",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(f"{scraper_url}/trigger")
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Scraper service timed out")
+    except httpx.RequestError as e:
+        log.error("scraper_unreachable", error=str(e))
+        raise HTTPException(status_code=503, detail="Scraper service unreachable")
+
+
 @router.post("/{company_id}/sync")
 async def sync_company(
     company_id: int,

@@ -22,7 +22,10 @@ class UserSettings(Base):
     __tablename__ = "user_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    excluded_companies: Mapped[list[str]] = mapped_column(
+    preferred_locations: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default="{}"
+    )
+    included_keywords: Mapped[list[str]] = mapped_column(
         ARRAY(String), default=list, server_default="{}"
     )
     excluded_keywords: Mapped[list[str]] = mapped_column(

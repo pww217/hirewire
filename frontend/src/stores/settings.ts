@@ -13,9 +13,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const isInitialized = ref(false)
 
   // Getters
-  const excludedCompanies = computed(() => settings.value?.excluded_companies || [])
+  const preferredLocations = computed(() => settings.value?.preferred_locations || [])
+  const includedKeywords = computed(() => settings.value?.included_keywords || [])
   const excludedKeywords = computed(() => settings.value?.excluded_keywords || [])
-  const defaultLocation = computed(() => settings.value?.default_location || null)
   const defaultRemote = computed(() => settings.value?.default_remote || false)
 
   // Actions
@@ -58,9 +58,9 @@ export const useSettingsStore = defineStore('settings', () => {
     isInitialized,
 
     // Getters
-    excludedCompanies,
+    preferredLocations,
+    includedKeywords,
     excludedKeywords,
-    defaultLocation,
     defaultRemote,
 
     // Actions

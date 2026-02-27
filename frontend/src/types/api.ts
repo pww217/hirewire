@@ -125,9 +125,9 @@ export interface JobListParams {
  * User settings
  */
 export interface UserSettings {
-  excluded_companies: string[]
+  preferred_locations: string[]
+  included_keywords: string[]
   excluded_keywords: string[]
-  default_location: string | null
   default_remote: boolean
 }
 

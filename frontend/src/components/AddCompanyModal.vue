@@ -112,9 +112,12 @@ async function submit() {
       ats_identifier: atsIdentifier.value.trim(),
       enabled: true,
     })
-    uiStore.showSuccess(`${company.name} added. Jobs will sync shortly.`)
+    // Select the new company so the user lands on its view
+    companiesStore.selectCompany(company.id)
     emit('created', company.id)
     emit('close')
+    // Trigger initial sync — updates job_count and fills the job list when done
+    companiesStore.syncCompany(company.id)
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to add company'
     uiStore.showError(msg)

@@ -8,8 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 class UserSettingsBase(BaseModel):
     """Base schema with common fields."""
 
-    excluded_companies: list[str] = Field(
-        default_factory=list, description="Companies to exclude from results"
+    preferred_locations: list[str] = Field(
+        default_factory=list, description="Preferred locations to filter jobs by default"
+    )
+    included_keywords: list[str] = Field(
+        default_factory=list, description="Keywords: only show jobs whose titles contain at least one"
     )
     excluded_keywords: list[str] = Field(
         default_factory=list, description="Keywords in job titles to exclude"
@@ -23,7 +26,8 @@ class UserSettingsBase(BaseModel):
 class UserSettingsUpdate(BaseModel):
     """Schema for updating user settings (all fields optional)."""
 
-    excluded_companies: list[str] | None = None
+    preferred_locations: list[str] | None = None
+    included_keywords: list[str] | None = None
     excluded_keywords: list[str] | None = None
     default_location: str | None = None
     default_remote: bool | None = None

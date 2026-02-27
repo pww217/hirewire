@@ -41,9 +41,9 @@ async def get_or_create_settings(db: AsyncSession) -> UserSettings:
         # Create default settings
         settings = UserSettings(
             id=SETTINGS_ID,
-            excluded_companies=[],
+            preferred_locations=[],
+            included_keywords=[],
             excluded_keywords=[],
-            default_location=None,
             default_remote=False,
             updated_at=datetime.now(timezone.utc),
         )

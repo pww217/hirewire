@@ -22,6 +22,8 @@ const api = useApi()
 const emit = defineEmits<{ 'open-add-company': [] }>()
 
 const isSyncingId = ref<number | null>(null)
+const isDeletingId = ref<number | null>(null)
+const isSyncingAll = ref(false)
 
 const companySearch = ref('')
 
@@ -58,18 +60,45 @@ watch(() => companiesStore.selectedCompanyId, () => {
   jobsStore.fetchJobs(true)
 })
 
+async function syncAll() {
+  if (isSyncingAll.value) return
+  isSyncingAll.value = true
+  try {
+    await api.post('/api/companies/sync-all')
+    uiStore.showSuccess('Full sync triggered')
+    await companiesStore.fetchCompanies()
+    jobsStore.fetchJobs(true)
+  } catch {
+    uiStore.showError('Sync failed or scraper not available')
+  } finally {
+    isSyncingAll.value = false
+  }
+}
+
+async function deleteCompany(id: number, e: Event) {
+  e.stopPropagation()
+  if (isDeletingId.value === id) return
+  if (!confirm(`Remove this company and its jobs?`)) return
+  isDeletingId.value = id
+  try {
+    await companiesStore.deleteCompany(id)
+    if (companiesStore.selectedCompanyId === null) {
+      jobsStore.fetchJobs(true)
+    }
+  } catch {
+    uiStore.showError('Failed to delete company')
+  } finally {
+    isDeletingId.value = null
+  }
+}
+
 async function syncCompany(id: number, e: Event) {
   e.stopPropagation()
   if (isSyncingId.value === id) return
   isSyncingId.value = id
   try {
-    await api.post(`/api/companies/${id}/sync`)
-    uiStore.showSuccess('Sync triggered')
-    // Refresh company list to get updated job_count
-    await companiesStore.fetchCompanies()
-    if (companiesStore.selectedCompanyId === id) {
-      await jobsStore.fetchJobs(true)
-    }
+    await companiesStore.syncCompany(id)
+    uiStore.showSuccess('Sync complete')
   } catch {
     uiStore.showError('Sync failed or scraper not available')
   } finally {
@@ -126,9 +155,19 @@ async function syncCompany(id: number, e: Event) {
     <!-- Companies section -->
     <div class="section-header">
       <span class="section-label">Companies</span>
-      <button class="add-btn" title="Add company" @click="emit('open-add-company')">
-        <span>+</span>
-      </button>
+      <div class="section-actions">
+        <button
+          class="add-btn"
+          :class="{ spinning: isSyncingAll }"
+          title="Sync all companies"
+          @click="syncAll"
+        >
+          ↻
+        </button>
+        <button class="add-btn" title="Add company" @click="emit('open-add-company')">
+          +
+        </button>
+      </div>
     </div>
 
     <!-- Company list -->
@@ -166,6 +205,13 @@ async function syncCompany(id: number, e: Event) {
           @click="syncCompany(company.id, $event)"
         >
           ↻
+        </button>
+        <button
+          class="company-delete-btn"
+          :title="`Remove ${company.name}`"
+          @click="deleteCompany(company.id, $event)"
+        >
+          ✕
         </button>
       </button>
     </div>
@@ -317,6 +363,11 @@ async function syncCompany(id: number, e: Event) {
   letter-spacing: 0.07em;
 }
 
+.section-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
 .add-btn {
   width: 22px;
   height: 22px;
@@ -438,6 +489,32 @@ async function syncCompany(id: number, e: Event) {
 
 .company-sync-btn:hover {
   color: var(--accent-primary);
+}
+
+.company-delete-btn {
+  display: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+.company-item:hover .company-delete-btn {
+  display: flex;
+}
+
+.company-delete-btn:hover {
+  color: #e05252;
 }
 
 .company-sync-btn.spinning {

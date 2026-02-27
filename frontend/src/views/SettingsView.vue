@@ -11,29 +11,58 @@ const jobsStore = useJobsStore()
 const uiStore = useUIStore()
 const settingsStore = useSettingsStore()
 
-const excludedCompanies = ref('')
+// Preferred locations (chips)
+const preferredLocations = ref<string[]>([])
+const locationInput = ref('')
+
+// Other settings
+const includedKeywords = ref('')
 const excludedKeywords = ref('')
-const defaultLocation = ref('')
 const defaultRemote = ref(false)
 const isSaving = ref(false)
 
 onMounted(async () => {
   await settingsStore.fetchSettings()
-
   if (settingsStore.settings) {
-    excludedCompanies.value = settingsStore.settings.excluded_companies?.join(', ') || ''
+    preferredLocations.value = [...(settingsStore.settings.preferred_locations || [])]
+    includedKeywords.value = settingsStore.settings.included_keywords?.join(', ') || ''
     excludedKeywords.value = settingsStore.settings.excluded_keywords?.join(', ') || ''
-    defaultLocation.value = settingsStore.settings.default_location || ''
     defaultRemote.value = settingsStore.settings.default_remote || false
   }
 })
 
+function addLocation() {
+  const val = locationInput.value.trim()
+  if (!val) return
+  // Support comma-separated bulk entry
+  const parts = val.split(',').map((s) => s.trim()).filter(Boolean)
+  for (const part of parts) {
+    if (!preferredLocations.value.includes(part)) {
+      preferredLocations.value.push(part)
+    }
+  }
+  locationInput.value = ''
+}
+
+function removeLocation(idx: number) {
+  preferredLocations.value.splice(idx, 1)
+}
+
+function onLocationKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    addLocation()
+  } else if (e.key === 'Backspace' && !locationInput.value && preferredLocations.value.length) {
+    preferredLocations.value.pop()
+  }
+}
+
 async function saveSettings() {
   isSaving.value = true
-
   try {
     const settings = {
-      excluded_companies: excludedCompanies.value
+      preferred_locations: preferredLocations.value,
+      included_keywords: includedKeywords.value
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
@@ -41,21 +70,19 @@ async function saveSettings() {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      default_location: defaultLocation.value || null,
       default_remote: defaultRemote.value,
     }
 
     await settingsStore.updateSettings(settings)
     uiStore.showSuccess('Settings saved')
-
-    jobsStore.fetchJobs(true)
-
-    if (settings.default_location || settings.default_remote) {
-      jobsStore.setFilters({
-        location: settings.default_location || '',
-        isRemote: settings.default_remote ? true : null,
-      })
+    // Apply remote default to active filters so the job list reflects it immediately
+    if (settings.default_remote) {
+      jobsStore.setFilters({ isRemote: true })
+    } else if (jobsStore.filters.isRemote === true) {
+      // Only clear if it was set by the setting (not an explicit user filter)
+      jobsStore.setFilters({ isRemote: null })
     }
+    jobsStore.fetchJobs(true)
   } catch {
     uiStore.showError('Failed to save settings')
   } finally {
@@ -66,14 +93,14 @@ async function saveSettings() {
 async function clearSettings() {
   try {
     await settingsStore.updateSettings({
-      excluded_companies: [],
+      preferred_locations: [],
+      included_keywords: [],
       excluded_keywords: [],
-      default_location: null,
       default_remote: false,
     })
-    excludedCompanies.value = ''
+    preferredLocations.value = []
+    includedKeywords.value = ''
     excludedKeywords.value = ''
-    defaultLocation.value = ''
     defaultRemote.value = false
     uiStore.showSuccess('Settings cleared')
     jobsStore.fetchJobs(true)
@@ -91,21 +118,36 @@ async function clearSettings() {
 
     <main class="settings-content">
       <form class="settings-form" @submit.prevent="saveSettings">
-        <!-- Default Filters -->
+        <!-- Job Filters -->
         <section class="settings-section">
-          <h2 class="section-title">Default Filters</h2>
+          <h2 class="section-title">Job Filters</h2>
           <p class="section-description">
-            Applied automatically when opening the dashboard.
+            Applied automatically to the job list. Leave locations empty to see all locations.
           </p>
 
+          <!-- Preferred locations chip input -->
           <div class="form-group">
-            <label class="form-label">Default Location</label>
-            <input
-              v-model="defaultLocation"
-              type="text"
-              class="input"
-              placeholder="e.g., San Francisco, CA"
-            />
+            <label class="form-label">Preferred Locations</label>
+            <div class="chip-input" @click="($refs.locInput as HTMLInputElement)?.focus()">
+              <span
+                v-for="(loc, idx) in preferredLocations"
+                :key="loc"
+                class="chip"
+              >
+                {{ loc }}
+                <button type="button" class="chip-remove" @click.stop="removeLocation(idx)">✕</button>
+              </span>
+              <input
+                ref="locInput"
+                v-model="locationInput"
+                class="chip-text-input"
+                type="text"
+                placeholder="Add location…"
+                @keydown="onLocationKeydown"
+                @blur="addLocation"
+              />
+            </div>
+            <p class="form-hint">Press Enter or comma to add. e.g. "New York", "San Francisco", "Remote"</p>
           </div>
 
           <div class="form-group">
@@ -117,22 +159,22 @@ async function clearSettings() {
           </div>
         </section>
 
-        <!-- Exclusions -->
+        <!-- Content Filters -->
         <section class="settings-section">
-          <h2 class="section-title">Exclusions</h2>
+          <h2 class="section-title">Content Filters</h2>
           <p class="section-description">
-            Hide jobs from specific companies or containing certain title keywords.
-            Separate multiple values with commas.
+            Narrow by title keywords. Separate multiple values with commas.
           </p>
 
           <div class="form-group">
-            <label class="form-label">Excluded Companies</label>
+            <label class="form-label">Included Keywords</label>
             <input
-              v-model="excludedCompanies"
+              v-model="includedKeywords"
               type="text"
               class="input"
-              placeholder="e.g., Acme Corp, Initech"
+              placeholder="e.g., engineer, analyst, designer"
             />
+            <p class="form-hint">Only show jobs whose titles contain at least one of these.</p>
           </div>
 
           <div class="form-group">
@@ -141,8 +183,9 @@ async function clearSettings() {
               v-model="excludedKeywords"
               type="text"
               class="input"
-              placeholder="e.g., senior, manager, director"
+              placeholder="e.g., intern, director, staff"
             />
+            <p class="form-hint">Hide jobs whose titles contain any of these.</p>
           </div>
         </section>
 
@@ -236,6 +279,76 @@ async function clearSettings() {
   margin-bottom: var(--space-2);
 }
 
+.form-hint {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Chip input */
+.chip-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  min-height: 40px;
+  cursor: text;
+  transition: border-color var(--transition-fast);
+}
+
+.chip-input:focus-within {
+  border-color: var(--accent-primary);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 10px;
+  background: var(--bg-active);
+  color: var(--accent-primary);
+  border-radius: 12px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chip-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font-size: 10px;
+  opacity: 0.7;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+}
+
+.chip-remove:hover {
+  opacity: 1;
+}
+
+.chip-text-input {
+  flex: 1;
+  min-width: 120px;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  padding: 2px 4px;
+}
+
+.chip-text-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Checkbox */
 .form-checkbox {
   display: flex;
   align-items: center;
@@ -256,6 +369,7 @@ async function clearSettings() {
   border-radius: var(--radius-sm);
   position: relative;
   transition: all var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .form-checkbox input:checked + .checkbox-box {
@@ -288,6 +402,7 @@ async function clearSettings() {
   font-size: var(--text-sm);
   color: var(--text-primary);
   transition: border-color var(--transition-fast);
+  box-sizing: border-box;
 }
 
 .input:focus {
