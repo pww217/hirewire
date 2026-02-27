@@ -8,14 +8,20 @@ import { useRoute, useRouter } from 'vue-router'
 import { useCompaniesStore } from '@/stores/companies'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useJobsStore } from '@/stores/jobs'
+import { useUIStore } from '@/stores/ui'
+import { useApi } from '@/composables/useApi'
 
 const route = useRoute()
 const router = useRouter()
 const companiesStore = useCompaniesStore()
 const favoritesStore = useFavoritesStore()
 const jobsStore = useJobsStore()
+const uiStore = useUIStore()
+const api = useApi()
 
 const emit = defineEmits<{ 'open-add-company': [] }>()
+
+const isSyncingId = ref<number | null>(null)
 
 const companySearch = ref('')
 
@@ -51,6 +57,25 @@ onMounted(() => {
 watch(() => companiesStore.selectedCompanyId, () => {
   jobsStore.fetchJobs(true)
 })
+
+async function syncCompany(id: number, e: Event) {
+  e.stopPropagation()
+  if (isSyncingId.value === id) return
+  isSyncingId.value = id
+  try {
+    await api.post(`/api/companies/${id}/sync`)
+    uiStore.showSuccess('Sync triggered')
+    // Refresh company list to get updated job_count
+    await companiesStore.fetchCompanies()
+    if (companiesStore.selectedCompanyId === id) {
+      await jobsStore.fetchJobs(true)
+    }
+  } catch {
+    uiStore.showError('Sync failed or scraper not available')
+  } finally {
+    isSyncingId.value = null
+  }
+}
 </script>
 
 <template>
@@ -134,6 +159,14 @@ watch(() => companiesStore.selectedCompanyId, () => {
         <span v-if="company.job_count > 0" class="company-badge">
           {{ company.job_count }}
         </span>
+        <button
+          class="company-sync-btn"
+          :class="{ spinning: isSyncingId === company.id }"
+          :title="`Sync ${company.name}`"
+          @click="syncCompany(company.id, $event)"
+        >
+          ↻
+        </button>
       </button>
     </div>
 
@@ -379,6 +412,42 @@ watch(() => companiesStore.selectedCompanyId, () => {
   background: var(--accent-primary);
   border-color: var(--accent-primary);
   color: white;
+}
+
+.company-sync-btn {
+  display: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+.company-item:hover .company-sync-btn {
+  display: flex;
+}
+
+.company-sync-btn:hover {
+  color: var(--accent-primary);
+}
+
+.company-sync-btn.spinning {
+  display: flex;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Footer */

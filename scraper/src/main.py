@@ -74,8 +74,11 @@ configure_logging()
 log = structlog.get_logger()
 
 
-async def main() -> ScrapeResult:
+async def main(company_id: int | None = None) -> ScrapeResult:
     """Main scraper entry point.
+
+    Args:
+        company_id: If set, only scrape this specific company. Otherwise scrape all.
 
     Returns:
         ScrapeResult with detailed per-site results
@@ -108,7 +111,14 @@ async def main() -> ScrapeResult:
         # =====================================================================
         # STEP 2: Load tracked companies from database
         # =====================================================================
-        tracked_companies = await db.get_enabled_tracked_companies()
+        all_companies = await db.get_enabled_tracked_companies()
+
+        if company_id is not None:
+            tracked_companies = [c for c in all_companies if c.id == company_id]
+            if not tracked_companies:
+                log.warning("company_not_found_or_disabled", company_id=company_id)
+        else:
+            tracked_companies = all_companies
 
         if not tracked_companies:
             log.warning(

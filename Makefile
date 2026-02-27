@@ -67,14 +67,19 @@ frontend:
 	@command -v npm >/dev/null 2>&1 || { echo "Error: npm not found. Install Node.js or use 'make serve' for Docker-based dev."; exit 1; }
 	cd frontend && npm run dev
 
-## sync: Run ATS scraper manually (via Docker)
+## sync: Trigger a full sync via the running scraper service
 sync:
-	$(DOCKER_COMPOSE) --profile scraper run --rm scraper
+	curl -s -X POST http://localhost:8888/trigger | python3 -m json.tool
 
-## sync-local: Run ATS scraper locally (requires DB running, venv)
+## sync-local: Run ATS scraper once locally (requires DB running, venv)
 sync-local: venv
 	DATABASE_URL=$(DB_URL) LOG_LEVEL=DEBUG LOG_FORMAT=console \
 	$(PYTHON) -m scraper.src.main
+
+## scraper-service: Run the scraper service locally (scheduled + HTTP triggers)
+scraper-service: venv
+	DATABASE_URL=$(DB_URL) LOG_LEVEL=DEBUG LOG_FORMAT=console SCRAPE_SCHEDULE=09:00,17:00 \
+	$(PYTHON) -m scraper.src.server
 
 # =============================================================================
 # Setup & Utilities

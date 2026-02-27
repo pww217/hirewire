@@ -1,12 +1,13 @@
 """Companies CRUD endpoints.
 
 Implements:
-- POST /api/companies/detect - Detect ATS type + slug from URL
-- GET  /api/companies        - List all tracked companies
-- POST /api/companies        - Add a new company to track
-- GET  /api/companies/{id}   - Get company details
-- PUT  /api/companies/{id}   - Update company
-- DELETE /api/companies/{id} - Remove company (soft-disables or hard-deletes)
+- POST /api/companies/detect     - Detect ATS type + slug from URL
+- GET  /api/companies            - List all tracked companies
+- POST /api/companies            - Add a new company to track
+- GET  /api/companies/{id}       - Get company details
+- PUT  /api/companies/{id}       - Update company
+- DELETE /api/companies/{id}     - Remove company
+- POST /api/companies/{id}/sync  - Trigger on-demand sync via scraper service
 """
 
 import structlog
@@ -14,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..database import get_db
 from ..models.company import TrackedCompany
 from ..schemas.company import (
@@ -27,6 +29,9 @@ from ..schemas.company import (
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 log = structlog.get_logger()
+
+# Lazy import httpx to avoid startup overhead
+import httpx  # noqa: E402
 
 
 @router.post("/detect", response_model=CompanyDetectResponse)
@@ -151,3 +156,39 @@ async def delete_company(
     await db.commit()
 
     log.info("company_deleted", id=company_id, name=company.name)
+
+
+@router.post("/{company_id}/sync")
+async def sync_company(
+    company_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Trigger an on-demand scrape for a single company.
+
+    Calls the scraper service's HTTP trigger endpoint. If no scraper URL is
+    configured, returns an error indicating scheduled-only mode.
+    """
+    company = await db.get(TrackedCompany, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    scraper_url = getattr(settings, "scraper_url", None)
+    if not scraper_url:
+        raise HTTPException(
+            status_code=503,
+            detail="Scraper service URL not configured (SCRAPER_URL env var). "
+                   "Syncs happen automatically on schedule.",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(f"{scraper_url}/trigger/company/{company_id}")
+        if resp.status_code == 404:
+            raise HTTPException(status_code=404, detail="Company not found in scraper")
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Scraper service timed out")
+    except httpx.RequestError as e:
+        log.error("scraper_unreachable", error=str(e))
+        raise HTTPException(status_code=503, detail="Scraper service unreachable")

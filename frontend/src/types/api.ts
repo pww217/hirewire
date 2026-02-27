@@ -178,6 +178,15 @@ export interface CompanyDetectResponse {
   detected: boolean
 }
 
+export interface SyncResponse {
+  success: boolean
+  new_jobs: number
+  updated_jobs: number
+  duration_ms: number
+  error: string | null
+  started_at: string
+}
+
 // ============================================================================
 // Stats Types
 // ============================================================================

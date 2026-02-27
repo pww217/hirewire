@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # Scraper service URL (for on-demand sync triggers)
+    # Set to http://scraper:8888 in Docker, leave empty to disable
+    scraper_url: str | None = None
+
     # Pagination defaults
     default_page_size: int = 50
     max_page_size: int = 100

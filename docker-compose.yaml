@@ -4,8 +4,10 @@
 # This starts:
 # - PostgreSQL database
 # - Web app (API + frontend)
+# - Scraper service (scheduled + on-demand HTTP triggers)
 #
-# To run scraper: docker-compose --profile scraper run --rm scraper
+# The scraper service runs continuously on a schedule and exposes
+# POST /trigger and POST /trigger/company/{id} for on-demand syncs.
 
 services:
   # PostgreSQL database
@@ -27,12 +29,11 @@ services:
       retries: 5
 
   # Web application (API + frontend)
-  # Uses unified image with default CMD (uvicorn)
-  # Also includes scraper config for /api/sync endpoint
   web:
     build: .
     environment:
       DATABASE_URL: postgresql://hirewire:localdev@postgres:5432/hirewire
+      SCRAPER_URL: http://scraper:8888
       LOG_LEVEL: DEBUG
       LOG_FORMAT: console
       ENVIRONMENT: development
@@ -42,21 +43,20 @@ services:
       postgres:
         condition: service_healthy
 
-  # Scraper (run on-demand)
-  # Same image, different command
-  # Usage: docker-compose --profile scraper run --rm scraper
+  # Scraper service (always-on: scheduled + on-demand HTTP)
   scraper:
     build: .
-    command: ["python", "-m", "scraper.src.main"]
+    command: ["python", "-m", "scraper.src.server"]
     environment:
       DATABASE_URL: postgresql://hirewire:localdev@postgres:5432/hirewire
+      SCRAPE_SCHEDULE: "09:00,17:00"
       LOG_LEVEL: DEBUG
       LOG_FORMAT: console
+    ports:
+      - "8888:8888"
     depends_on:
       postgres:
         condition: service_healthy
-    profiles:
-      - scraper
 
 volumes:
   postgres_data:
