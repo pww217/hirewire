@@ -1,7 +1,7 @@
 # HireWire Local Development Makefile
 # Usage: make help
 
-.PHONY: dev serve install db db-wait backend frontend scrape logs clean stop-dev venv help
+.PHONY: dev serve install db db-wait db-migrate db-reset backend frontend sync sync-local scraper-service logs clean stop-dev venv help
 
 # Default target
 .DEFAULT_GOAL := help
@@ -48,6 +48,17 @@ serve-detach:
 ## db: Start PostgreSQL database only
 db:
 	$(DOCKER_COMPOSE) up -d postgres
+
+## db-migrate: Apply schema migrations to existing database
+db-migrate: db-wait
+	$(DOCKER_COMPOSE) exec postgres psql -U hirewire -d hirewire -f /dev/stdin < shared/migrations/001_company_first.sql
+	@echo "Migration complete."
+
+## db-reset: Destroy and recreate the database (DELETES ALL DATA)
+db-reset:
+	$(DOCKER_COMPOSE) down -v
+	$(DOCKER_COMPOSE) up -d postgres
+	@$(MAKE) db-wait
 
 ## db-wait: Start DB and wait for it to be healthy
 db-wait: db
