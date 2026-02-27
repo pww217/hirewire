@@ -10,6 +10,7 @@ Response shape (confirmed via smoke test on stripe):
             absolute_url, updated_at, departments[], offices[] }
 """
 
+import html as html_lib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -103,7 +104,9 @@ class GreenhouseScraper(BaseScraper):
         date_posted = _parse_iso(job.get("updated_at"))
 
         # Description comes in `content` field when ?content=true
-        description = job.get("content")
+        # Greenhouse returns HTML-escaped content (&lt;h2&gt; etc.) — unescape it
+        raw_content = job.get("content")
+        description = html_lib.unescape(raw_content) if raw_content else None
 
         return RawJob(
             source="greenhouse",

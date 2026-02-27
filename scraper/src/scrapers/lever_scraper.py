@@ -124,8 +124,8 @@ class LeverScraper(BaseScraper):
         created_at_ms = job.get("createdAt")
         date_posted = _parse_ms_epoch(created_at_ms)
 
-        # Description (HTML preferred, plain fallback)
-        description = job.get("description") or job.get("descriptionPlain")
+        # Assemble full description from all Lever content sections
+        description = _build_description(job)
 
         return RawJob(
             source="lever",
@@ -143,6 +143,38 @@ class LeverScraper(BaseScraper):
             job_type=job_type,
             date_posted=date_posted,
         )
+
+
+def _build_description(job: dict) -> Optional[str]:
+    """Assemble a full HTML description from all Lever content sections.
+
+    Lever splits job content across:
+      - description: intro paragraph(s)
+      - lists[]:     body sections with a heading and <li> items
+      - additional:  compensation, location, benefits etc.
+    """
+    parts: list[str] = []
+
+    intro = job.get("description", "").strip()
+    if intro:
+        parts.append(intro)
+
+    for section in job.get("lists") or []:
+        heading = (section.get("text") or "").strip()
+        content = (section.get("content") or "").strip()
+        if heading:
+            parts.append(f"<h3>{heading}</h3>")
+        if content:
+            parts.append(f"<ul>{content}</ul>")
+
+    extra = job.get("additional", "").strip()
+    if extra:
+        parts.append(extra)
+
+    if not parts:
+        return job.get("descriptionPlain") or None
+
+    return "\n".join(parts)
 
 
 def _parse_ms_epoch(value: Optional[int]) -> Optional[datetime]:
