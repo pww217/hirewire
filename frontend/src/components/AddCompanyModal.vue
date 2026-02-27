@@ -22,7 +22,6 @@ const uiStore = useUIStore()
 // Form state
 const url = ref('')
 const name = ref('')
-const website = ref('')
 const atsType = ref<ATSType | null>(null)
 const atsIdentifier = ref('')
 
@@ -49,17 +48,9 @@ const canSubmit = computed(
     !isSubmitting.value
 )
 
-// Derive a company name guess from URL hostname
-function guessNameFromUrl(raw: string): string {
-  try {
-    const u = new URL(raw.startsWith('http') ? raw : `https://${raw}`)
-    // Strip www. and jobs. prefixes; take first segment
-    const host = u.hostname.replace(/^(www|jobs)\./i, '')
-    const part = host.split('.')[0]
-    return part.charAt(0).toUpperCase() + part.slice(1)
-  } catch {
-    return ''
-  }
+// Capitalize a slug into a display name: "monarchmoney" → "Monarchmoney"
+function slugToName(slug: string): string {
+  return slug.charAt(0).toUpperCase() + slug.slice(1)
 }
 
 async function detectFromUrl() {
@@ -83,16 +74,9 @@ async function detectFromUrl() {
       detectionMessage.value = 'Could not detect ATS automatically — fill in manually below.'
     }
 
-    // Pre-fill name if empty
-    if (!name.value) {
-      name.value = guessNameFromUrl(trimmed)
-    }
-    // Pre-fill website
-    if (!website.value) {
-      try {
-        const u = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
-        website.value = u.origin
-      } catch { /* ignore */ }
+    // Pre-fill name from slug if empty
+    if (!name.value && result.ats_identifier) {
+      name.value = slugToName(result.ats_identifier)
     }
   } catch {
     detectionDone.value = true
@@ -124,7 +108,6 @@ async function submit() {
   try {
     const company = await companiesStore.createCompany({
       name: name.value.trim(),
-      website: website.value.trim() || undefined,
       ats_type: atsType.value!,
       ats_identifier: atsIdentifier.value.trim(),
       enabled: true,
@@ -195,18 +178,6 @@ function close() {
             class="field-input"
             type="text"
             placeholder="Acme Corp"
-            autocomplete="off"
-          />
-        </div>
-
-        <!-- Website -->
-        <div class="field">
-          <label class="field-label">Website</label>
-          <input
-            v-model="website"
-            class="field-input"
-            type="url"
-            placeholder="https://acme.com"
             autocomplete="off"
           />
         </div>
