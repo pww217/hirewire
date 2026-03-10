@@ -11,7 +11,7 @@
  * - /: Focus search
  * - Esc: Clear selection / close filter panel
  */
-import { onMounted, watch, ref } from 'vue'
+import { onMounted, watch, watchEffect, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useJobsStore } from '@/stores/jobs'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -57,6 +57,12 @@ onMounted(() => {
   jobsStore.fetchJobs()
   jobsStore.startAutoRefresh()
   statsStore.fetchStats()
+})
+
+watchEffect(() => {
+  const label = companiesStore.selectedCompany?.name ?? 'All Jobs'
+  const count = jobsStore.total
+  document.title = count > 0 ? `(${count}) ${label} | HireWire` : `${label} | HireWire`
 })
 
 // Sync favorites from jobs when they change
@@ -226,6 +232,8 @@ function handleJobClick(jobId: number) {
           :total-pages="jobsStore.totalPages"
           :selected-job-id="selectedJobId"
           :is-viewed="viewedStore.isViewed"
+          :has-company="companiesStore.selectedCompanyId !== null"
+          :has-filters="jobsStore.activeFilterCount > 0"
           @page-change="handlePageChange"
           @favorite="handleFavorite"
           @hide="handleHide"

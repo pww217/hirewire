@@ -2,14 +2,13 @@
 
 This module sets up the FastAPI application with:
 - CORS configuration
-- Static file serving (Vue frontend)
-- API routers for jobs, favorites
-- Health check endpoint
-- Database lifecycle management
+- Static file serving (compiled Vue 3 frontend)
+- API routers: health, companies, jobs, favorites, settings, stats
+- Database lifecycle management (SQLAlchemy async engine)
 - Structured logging with structlog
 
 Run with:
-    DATABASE_URL="postgresql://..." uvicorn src.main:app --reload
+    DATABASE_URL="postgresql://..." uvicorn backend.src.main:app --reload
 """
 
 from contextlib import asynccontextmanager

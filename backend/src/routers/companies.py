@@ -1,13 +1,14 @@
-"""Companies CRUD endpoints.
+"""Companies CRUD and sync endpoints.
 
 Implements:
-- POST /api/companies/detect     - Detect ATS type + slug from URL
-- GET  /api/companies            - List all tracked companies
-- POST /api/companies            - Add a new company to track
-- GET  /api/companies/{id}       - Get company details
-- PUT  /api/companies/{id}       - Update company
-- DELETE /api/companies/{id}     - Remove company
-- POST /api/companies/{id}/sync  - Trigger on-demand sync via scraper service
+- POST /api/companies/detect         - Detect ATS type + slug from a career page URL
+- GET  /api/companies                - List all tracked companies
+- POST /api/companies                - Add a new company to track
+- GET  /api/companies/{id}           - Get company details
+- PUT  /api/companies/{id}           - Update company
+- DELETE /api/companies/{id}         - Remove company (jobs retain history, company_id set NULL)
+- POST /api/companies/sync-all       - Trigger full sync of all enabled companies
+- POST /api/companies/{id}/sync      - Trigger on-demand sync for a single company
 """
 
 import structlog

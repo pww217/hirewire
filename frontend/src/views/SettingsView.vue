@@ -18,7 +18,6 @@ const locationInput = ref('')
 // Other settings
 const includedKeywords = ref('')
 const excludedKeywords = ref('')
-const defaultRemote = ref(false)
 const isSaving = ref(false)
 
 onMounted(async () => {
@@ -27,7 +26,6 @@ onMounted(async () => {
     preferredLocations.value = [...(settingsStore.settings.preferred_locations || [])]
     includedKeywords.value = settingsStore.settings.included_keywords?.join(', ') || ''
     excludedKeywords.value = settingsStore.settings.excluded_keywords?.join(', ') || ''
-    defaultRemote.value = settingsStore.settings.default_remote || false
   }
 })
 
@@ -70,18 +68,10 @@ async function saveSettings() {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      default_remote: defaultRemote.value,
     }
 
     await settingsStore.updateSettings(settings)
     uiStore.showSuccess('Settings saved')
-    // Apply remote default to active filters so the job list reflects it immediately
-    if (settings.default_remote) {
-      jobsStore.setFilters({ isRemote: true })
-    } else if (jobsStore.filters.isRemote === true) {
-      // Only clear if it was set by the setting (not an explicit user filter)
-      jobsStore.setFilters({ isRemote: null })
-    }
     jobsStore.fetchJobs(true)
   } catch {
     uiStore.showError('Failed to save settings')
@@ -96,12 +86,10 @@ async function clearSettings() {
       preferred_locations: [],
       included_keywords: [],
       excluded_keywords: [],
-      default_remote: false,
     })
     preferredLocations.value = []
     includedKeywords.value = ''
     excludedKeywords.value = ''
-    defaultRemote.value = false
     uiStore.showSuccess('Settings cleared')
     jobsStore.fetchJobs(true)
   } catch {
@@ -150,13 +138,6 @@ async function clearSettings() {
             <p class="form-hint">Press Enter or comma to add. e.g. "New York", "San Francisco", "Remote"</p>
           </div>
 
-          <div class="form-group">
-            <label class="form-checkbox">
-              <input v-model="defaultRemote" type="checkbox" />
-              <span class="checkbox-box"></span>
-              <span class="checkbox-label">Show only remote jobs by default</span>
-            </label>
-          </div>
         </section>
 
         <!-- Content Filters -->

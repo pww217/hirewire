@@ -16,6 +16,8 @@ interface Props {
   totalPages?: number
   selectedJobId?: number | null
   isViewed?: (jobId: number) => boolean
+  hasCompany?: boolean
+  hasFilters?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -25,6 +27,8 @@ const props = withDefaults(defineProps<Props>(), {
   totalPages: 1,
   selectedJobId: null,
   isViewed: () => false,
+  hasCompany: false,
+  hasFilters: false,
 })
 
 const emit = defineEmits<{
@@ -65,10 +69,22 @@ const emit = defineEmits<{
     
     <!-- Empty state -->
     <EmptyState
-      v-else
+      v-else-if="hasFilters"
       icon="🔍"
-      title="No jobs found"
+      title="No matching jobs"
       description="Try adjusting your filters or search terms"
+    />
+    <EmptyState
+      v-else-if="hasCompany"
+      icon="⏳"
+      title="No jobs yet"
+      description="Hit the sync button to pull the latest listings"
+    />
+    <EmptyState
+      v-else
+      icon="🏢"
+      title="No companies tracked"
+      description="Add a company from the sidebar to get started"
     />
     
     <!-- Pagination -->

@@ -1,15 +1,21 @@
 """HireWire Scraper Service.
 
-Runs as a long-lived process that:
-1. Accepts HTTP trigger requests (on-demand sync)
-2. Runs scheduled scrapes at configured times (default 9:00 and 17:00)
+Long-lived FastAPI service (port 8888) that:
+1. Runs scheduled scrapes at configured UTC times (default: 09:00 and 17:00)
+2. Accepts HTTP trigger requests for on-demand syncs from the web service
 
 Endpoints:
-  POST /trigger              - Sync all tracked companies
-  POST /trigger/company/{id} - Sync a single company by ID
+  GET  /health               - Service status and next scheduled run times
+  POST /trigger              - Trigger full sync of all enabled companies
+  POST /trigger/company/{id} - Trigger sync for a single company by DB ID
+
+Configuration:
+  SCRAPE_SCHEDULE  Comma-separated HH:MM times in UTC (default: "09:00,17:00")
+  DATABASE_URL     PostgreSQL connection string (required)
 
 Usage:
   uvicorn scraper.src.server:app --host 0.0.0.0 --port 8888
+  python -m scraper.src.server
 """
 
 import asyncio

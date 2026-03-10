@@ -1,20 +1,18 @@
 # =============================================================================
-# HireWire CI - Container Image Build
+# HireWire CI
 # =============================================================================
-# Builds and pushes unified Docker image to GitHub Container Registry.
+# Lint, type-check, and build the unified Docker image.
 #
 # Triggers:
-#   - Push to main: Build and push image with :latest and :sha tags
-#   - Pull request: Build only (verify Dockerfile works)
+#   - Push to main: build and push image with :latest and :<sha> tags
+#   - Pull request: build only (no push)
 #   - Manual: workflow_dispatch
 #
 # Image: ghcr.io/pww217/hirewire:latest
 #
-# The unified image has two entrypoints:
-#   - API: uvicorn backend.src.main:app (default)
-#   - Scraper: python -m scraper.src.main (CronJob override)
-#
-# After push, ArgoCD auto-syncs if using :latest tag.
+# The image supports two entrypoints (selected via docker-compose command):
+#   - web:     uvicorn backend.src.main:app     (default CMD)
+#   - scraper: python -m scraper.src.server     (overridden in compose)
 # =============================================================================
 name: CI
 

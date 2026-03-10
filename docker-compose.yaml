@@ -1,13 +1,13 @@
 # HireWire Local Development Docker Compose
 # Usage: docker-compose up
 #
-# This starts:
-# - PostgreSQL database
-# - Web app (API + frontend)
-# - Scraper service (scheduled + on-demand HTTP triggers)
+# Services:
+# - postgres  :5432  PostgreSQL 16, initialized from shared/schema.sql
+# - web       :8000  FastAPI backend + compiled Vue 3 frontend
+# - scraper   :8888  ATS scraper service (scheduled sync + HTTP triggers)
 #
-# The scraper service runs continuously on a schedule and exposes
-# POST /trigger and POST /trigger/company/{id} for on-demand syncs.
+# Both web and scraper are built from the same Dockerfile using different commands.
+# The web service calls the scraper via SCRAPER_URL for on-demand sync triggers.
 
 services:
   # PostgreSQL database

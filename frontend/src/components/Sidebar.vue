@@ -3,7 +3,7 @@
  * Sidebar - Company-first navigation
  * Shows tracked companies with job counts, plus All Jobs / Favorites entries.
  */
-import { computed, ref, onMounted, watch } from 'vue'
+import { computed, ref, nextTick, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCompaniesStore } from '@/stores/companies'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -24,8 +24,45 @@ const emit = defineEmits<{ 'open-add-company': [] }>()
 const isSyncingId = ref<number | null>(null)
 const isDeletingId = ref<number | null>(null)
 const isSyncingAll = ref(false)
+const editingId = ref<number | null>(null)
+const editingName = ref('')
 
 const companySearch = ref('')
+
+// --- "New jobs" indicator via localStorage ---
+const VIEWED_KEY = 'hirewire_company_viewed'
+
+function getViewedMap(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(VIEWED_KEY) || '{}')
+  } catch { return {} }
+}
+
+function markViewed(id: number) {
+  const map = getViewedMap()
+  map[String(id)] = new Date().toISOString()
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(map))
+}
+
+function hasNewJobs(company: { id: number; last_scraped: string | null; job_count: number }): boolean {
+  if (!company.last_scraped || company.job_count === 0) return false
+  const lastViewed = getViewedMap()[String(company.id)]
+  if (!lastViewed) return true
+  return new Date(company.last_scraped) > new Date(lastViewed)
+}
+
+// --- Relative time helper ---
+function timeAgo(iso: string | null): string {
+  if (!iso) return 'Never'
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
+}
 
 const filteredCompanies = computed(() => {
   const q = companySearch.value.trim().toLowerCase()
@@ -37,7 +74,7 @@ const filteredCompanies = computed(() => {
 
 function selectCompany(id: number | null) {
   companiesStore.selectCompany(id)
-  // Navigate to dashboard when selecting a company
+  if (id !== null) markViewed(id)
   if (route.name !== 'dashboard') {
     router.push('/')
   }
@@ -55,11 +92,39 @@ onMounted(() => {
   companiesStore.fetchCompanies()
 })
 
-// Re-fetch jobs whenever the selected company changes
 watch(() => companiesStore.selectedCompanyId, () => {
   jobsStore.fetchJobs(true)
 })
 
+// --- Inline rename ---
+function startEditing(id: number, name: string, e: Event) {
+  e.stopPropagation()
+  editingId.value = id
+  editingName.value = name
+  nextTick(() => {
+    const input = document.querySelector('.company-edit-input') as HTMLInputElement | null
+    input?.focus()
+    input?.select()
+  })
+}
+
+async function saveEdit(id: number) {
+  const trimmed = editingName.value.trim()
+  if (trimmed && trimmed !== companiesStore.companies.find(c => c.id === id)?.name) {
+    try {
+      await companiesStore.updateCompany(id, { name: trimmed })
+    } catch {
+      uiStore.showError('Failed to rename company')
+    }
+  }
+  editingId.value = null
+}
+
+function cancelEdit() {
+  editingId.value = null
+}
+
+// --- Sync ---
 async function syncAll() {
   if (isSyncingAll.value) return
   isSyncingAll.value = true
@@ -78,7 +143,7 @@ async function syncAll() {
 async function deleteCompany(id: number, e: Event) {
   e.stopPropagation()
   if (isDeletingId.value === id) return
-  if (!confirm(`Remove this company and its jobs?`)) return
+  if (!confirm('Remove this company and its jobs?')) return
   isDeletingId.value = id
   try {
     await companiesStore.deleteCompany(id)
@@ -97,8 +162,12 @@ async function syncCompany(id: number, e: Event) {
   if (isSyncingId.value === id) return
   isSyncingId.value = id
   try {
-    await companiesStore.syncCompany(id)
-    uiStore.showSuccess('Sync complete')
+    const result = await companiesStore.syncCompany(id)
+    if (result && result.new_jobs > 0) {
+      uiStore.showSuccess(`Sync done — ${result.new_jobs} new job${result.new_jobs === 1 ? '' : 's'}`)
+    } else {
+      uiStore.showSuccess('Sync complete — no new jobs')
+    }
   } catch {
     uiStore.showError('Sync failed or scraper not available')
   } finally {
@@ -192,13 +261,36 @@ async function syncCompany(id: number, e: Event) {
         :key="company.id"
         class="company-item"
         :class="{ active: isCompanyActive(company.id), disabled: !company.enabled }"
+        :title="`Last synced: ${timeAgo(company.last_scraped)}`"
         @click="selectCompany(company.id)"
       >
-        <span class="company-name">{{ company.name }}</span>
-        <span v-if="company.job_count > 0" class="company-badge">
+        <span v-if="hasNewJobs(company)" class="new-dot" aria-label="New jobs"></span>
+        <template v-if="editingId === company.id">
+          <input
+            v-model="editingName"
+            class="company-edit-input"
+            @click.stop
+            @keydown.enter="saveEdit(company.id)"
+            @keydown.escape="cancelEdit"
+            @blur="saveEdit(company.id)"
+          />
+        </template>
+        <template v-else>
+          <span class="company-name">{{ company.name }}</span>
+        </template>
+        <span v-if="company.job_count > 0 && editingId !== company.id" class="company-badge">
           {{ company.job_count }}
         </span>
         <button
+          v-if="editingId !== company.id"
+          class="company-edit-btn"
+          :title="`Rename ${company.name}`"
+          @click="startEditing(company.id, company.name, $event)"
+        >
+          ✎
+        </button>
+        <button
+          v-if="editingId !== company.id"
           class="company-sync-btn"
           :class="{ spinning: isSyncingId === company.id }"
           :title="`Sync ${company.name}`"
@@ -207,6 +299,7 @@ async function syncCompany(id: number, e: Event) {
           ↻
         </button>
         <button
+          v-if="editingId !== company.id"
           class="company-delete-btn"
           :title="`Remove ${company.name}`"
           @click="deleteCompany(company.id, $event)"
@@ -439,11 +532,58 @@ async function syncCompany(id: number, e: Event) {
   opacity: 0.5;
 }
 
+.new-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  flex-shrink: 0;
+}
+
 .company-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.company-edit-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  outline: none;
+}
+
+.company-edit-btn {
+  display: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+.company-item:hover .company-edit-btn {
+  display: flex;
+}
+
+.company-edit-btn:hover {
+  color: var(--accent-primary);
 }
 
 .company-badge {

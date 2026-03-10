@@ -1,24 +1,26 @@
 # HireWire
 
-Job search aggregator for finding marketing/SEO/analytics/content roles at startups.
+Company-first job tracker. Add the companies you care about, and HireWire polls their ATS job boards (Greenhouse, Lever, Ashby) automatically — twice a day and on demand — displaying all open roles in a single searchable dashboard.
 
 ## Structure
 
 ```
-apps/hirewire/
-├── Dockerfile        # Unified multi-stage build
-├── Makefile          # Development commands
-├── requirements.txt  # Combined Python dependencies
-├── backend/          # FastAPI backend
+hirewire/
+├── Dockerfile            # Unified multi-stage build (web + scraper)
+├── Makefile              # Development commands
+├── requirements.txt      # Python dependencies
+├── docker-compose.yaml   # Local dev orchestration
+├── backend/              # FastAPI backend + Vue frontend (served as static)
 │   └── src/
-├── frontend/         # Vue 3 frontend
+├── frontend/             # Vue 3 + Vite frontend source
 │   ├── package.json
 │   └── src/
-├── scraper/          # Job scraping code
+├── scraper/              # ATS scraper service
 │   └── src/
 ├── shared/
-│   └── schema.sql    # PostgreSQL schema
-└── docs/             # Design documentation
+│   ├── schema.sql        # PostgreSQL schema
+│   └── migrations/       # Incremental schema migrations
+└── docs/                 # Design documentation
 ```
 
 ## Quick Start
@@ -27,77 +29,83 @@ apps/hirewire/
 # First time setup
 make install
 
-# Start development environment (hot-reload)
-make dev
-
-# Or use Docker (no local deps needed)
+# Start everything via Docker (recommended)
 make serve
+
+# Or start with hot-reload (requires Node.js locally)
+make dev
 ```
+
+Open http://localhost:8000 — add companies via the + button in the sidebar.
 
 ## Development Commands
 
 ```bash
-make help          # Show all commands
+make help           # Show all commands
 
 # Primary
-make dev           # Full hot-reload dev (DB + backend + frontend)
-make serve         # Production-like via Docker Compose
+make serve          # Run via Docker Compose (web + scraper + postgres)
+make dev            # Full hot-reload dev (requires local Node.js + Python venv)
 
 # Individual services
-make db            # Start PostgreSQL only
-make backend       # Run backend with reload (requires DB)
-make frontend      # Run frontend with HMR (requires Node.js)
+make db             # Start PostgreSQL only
+make backend        # Run backend API with reload (requires DB)
+make frontend       # Run Vite dev server (requires Node.js)
+make scraper-service # Run scraper service locally (scheduled + HTTP triggers)
+
+# Database
+make db-migrate     # Apply all pending migrations
+make db-reset       # Destroy and recreate DB (DELETES ALL DATA)
+
+# Sync
+make sync           # Trigger full sync via running scraper service
+make sync-local     # Run scraper once locally (one-shot)
 
 # Utilities
-make scrape        # Run scraper via Docker
-make psql          # Open PostgreSQL shell
-make logs          # Tail Docker logs
-make clean         # Stop containers, remove volumes
+make psql           # Open PostgreSQL shell
+make logs           # Tail Docker logs
+make clean          # Stop containers, remove volumes
 ```
 
 ## Architecture
 
-Single Docker image with two entrypoints:
-- **API**: `uvicorn backend.src.main:app` (default)
-- **Scraper**: `python -m scraper.src.main`
+Two Docker containers sharing a PostgreSQL database:
 
-## Kubernetes Deployment
+```
+┌─────────────────────────────────────────────┐
+│  web container (:8000)                       │
+│  FastAPI API + Vue 3 frontend (static)       │
+└──────────────────┬──────────────────────────┘
+                   │ HTTP POST /trigger
+┌──────────────────▼──────────────────────────┐
+│  scraper container (:8888)                   │
+│  FastAPI service — scheduled + on-demand     │
+│  Polls Greenhouse / Lever / Ashby APIs       │
+└──────────────────┬──────────────────────────┘
+                   │
+         ┌─────────▼─────────┐
+         │   PostgreSQL       │
+         │   (jobs, companies │
+         │    settings, etc.) │
+         └───────────────────┘
+```
 
-Deployed via Helm chart using the workload library:
-- **Deployment**: API server (uses default CMD)
-- **CronJob**: Scraper (overrides CMD, runs every 2 hours)
-
-Image: `ghcr.io/pww217/hirewire:latest`
-
-See `k3s/applications/hirewire/` for configuration.
+The scraper runs on a schedule (9 AM and 5 PM UTC by default) and also accepts HTTP trigger requests from the web service for on-demand syncs.
 
 ## Features
 
-- Job aggregation from Indeed, Glassdoor via JobSpy
-- Full-text search with comma-separated OR support
-- Filter by location, remote, company size, job type
-- Favorites and hidden jobs with undo support
-- Manual sync trigger from UI
-- Search configuration management with multi-country support
-- Viewed job tracking (persisted to localStorage)
-- Auto-refresh with visibility detection
-
-### Keyboard Shortcuts
-
-Navigate the job list efficiently with keyboard shortcuts:
-
-- `j` / `↓` - Move to next job
-- `k` / `↑` - Move to previous job
-- `f` - Toggle favorite on selected job
-- `h` - Hide selected job (with undo)
-- `Enter` - Open job details
-- `/` - Focus search input
-- `Esc` - Clear selection or close panels
+- Add companies by pasting any Greenhouse, Lever, or Ashby career page URL — ATS type and slug are auto-detected
+- Per-company and global sync buttons; scheduled sync twice daily
+- Master-detail job view with full HTML job descriptions
+- Favorites
+- Disappearance detection — jobs are marked inactive immediately when they vanish from the ATS feed
+- Settings: preferred locations (chip input), included/excluded title keywords, remote-only toggle
+- Full-text search across all job listings
 
 ## Documentation
 
-- [Scraping Tools Analysis](docs/scraping-tools.md)
-- [Scraper Service Design](docs/scraper-service.md)
-- [API Backend Spec](docs/api-backend.md)
-- [Frontend Spec](docs/frontend.md)
+- [API Backend](docs/api-backend.md)
+- [Frontend](docs/frontend.md)
+- [Scraper Service](docs/scraper-service.md)
+- [ATS Scraping Tools](docs/scraping-tools.md)
 - [Infrastructure & CI/CD](docs/infra-cicd.md)

@@ -123,8 +123,8 @@ export const useJobsStore = defineStore('jobs', () => {
         }
       }
       
-      // Apply settings-based filters (only when no explicit location filter is active and not in remote-only mode)
-      if (!filters.value.location && !settingsStore.defaultRemote && settingsStore.preferredLocations.length > 0) {
+      // Apply settings-based filters when no explicit location filter is active
+      if (!filters.value.location && settingsStore.preferredLocations.length > 0) {
         params.preferred_locations = settingsStore.preferredLocations
       }
       if (settingsStore.includedKeywords.length > 0) {

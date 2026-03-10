@@ -6,6 +6,7 @@ import type {
   TrackedCompanyUpdate,
   CompanyDetectRequest,
   CompanyDetectResponse,
+  SyncResponse,
 } from '@/types/api'
 import { useApi } from '@/composables/useApi'
 
@@ -73,19 +74,19 @@ export const useCompaniesStore = defineStore('companies', () => {
     }
   }
 
-  async function syncCompany(id: number): Promise<void> {
+  async function syncCompany(id: number): Promise<SyncResponse | null> {
+    let result: SyncResponse | null = null
     try {
-      await api.post(`/api/companies/${id}/sync`, undefined, { showErrorToast: false })
+      result = await api.post<SyncResponse>(`/api/companies/${id}/sync`, undefined, { showErrorToast: false })
     } catch {
       // Best-effort — scraper may not be reachable
     }
-    // Refresh company list to pick up updated job_count
     await fetchCompanies()
-    // If this company is selected, also refresh the jobs list
     if (selectedCompanyId.value === id) {
       const { useJobsStore } = await import('./jobs')
       useJobsStore().fetchJobs(true)
     }
+    return result
   }
 
   return {
