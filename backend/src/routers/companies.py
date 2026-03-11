@@ -11,12 +11,13 @@ Implements:
 - POST /api/companies/{id}/sync      - Trigger on-demand sync for a single company
 """
 
+from datetime import datetime, timezone
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
 from ..database import get_db
 from ..models.company import TrackedCompany
 from ..schemas.company import (
@@ -25,14 +26,12 @@ from ..schemas.company import (
     CompanyDetectResponse,
     CompanyResponse,
     CompanyUpdate,
+    SyncResponse,
     detect_ats_from_url,
 )
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 log = structlog.get_logger()
-
-# Lazy import httpx to avoid startup overhead
-import httpx  # noqa: E402
 
 
 @router.post("/detect", response_model=CompanyDetectResponse)
@@ -159,62 +158,42 @@ async def delete_company(
     log.info("company_deleted", id=company_id, name=company.name)
 
 
-@router.post("/sync-all")
-async def sync_all_companies() -> dict:
-    """Trigger a full scrape of all enabled companies.
-
-    Calls the scraper service's /trigger endpoint.
-    """
-    scraper_url = getattr(settings, "scraper_url", None)
-    if not scraper_url:
-        raise HTTPException(
-            status_code=503,
-            detail="Scraper service URL not configured (SCRAPER_URL env var).",
-        )
-
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(f"{scraper_url}/trigger")
-        resp.raise_for_status()
-        return resp.json()
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Scraper service timed out")
-    except httpx.RequestError as e:
-        log.error("scraper_unreachable", error=str(e))
-        raise HTTPException(status_code=503, detail="Scraper service unreachable")
+@router.post("/sync-all", response_model=SyncResponse)
+async def sync_all_companies() -> SyncResponse:
+    """Trigger a full scrape of all enabled companies."""
+    from scraper.src.main import main as scraper_main
+    log.info("on_demand_sync_all")
+    result = await scraper_main()
+    return SyncResponse(
+        success=result.success,
+        new_jobs=result.new_jobs,
+        updated_jobs=result.updated_jobs,
+        duration_ms=result.duration_ms,
+        error=result.error,
+        started_at=datetime.now(timezone.utc).isoformat(),
+    )
 
 
-@router.post("/{company_id}/sync")
+@router.post("/{company_id}/sync", response_model=SyncResponse)
 async def sync_company(
     company_id: int,
     db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Trigger an on-demand scrape for a single company.
-
-    Calls the scraper service's HTTP trigger endpoint. If no scraper URL is
-    configured, returns an error indicating scheduled-only mode.
-    """
+) -> SyncResponse:
+    """Trigger an on-demand scrape for a single company."""
     company = await db.get(TrackedCompany, company_id)
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    scraper_url = getattr(settings, "scraper_url", None)
-    if not scraper_url:
-        raise HTTPException(
-            status_code=503,
-            detail="Scraper service URL not configured (SCRAPER_URL env var). "
-                   "Syncs happen automatically on schedule.",
-        )
-
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(f"{scraper_url}/trigger/company/{company_id}")
-        if resp.status_code == 404:
-            raise HTTPException(status_code=404, detail="Company not found in scraper")
-        resp.raise_for_status()
-        return resp.json()
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Scraper service timed out")
-    except httpx.RequestError as e:
-        log.error("scraper_unreachable", error=str(e))
-        raise HTTPException(status_code=503, detail="Scraper service unreachable")
+    from scraper.src.main import main as scraper_main
+    log.info("on_demand_sync_company", company_id=company_id)
+    result = await scraper_main(company_id=company_id)
+    if not result.success and result.error and "not found" in (result.error or "").lower():
+        raise HTTPException(status_code=404, detail=result.error)
+    return SyncResponse(
+        success=result.success,
+        new_jobs=result.new_jobs,
+        updated_jobs=result.updated_jobs,
+        duration_ms=result.duration_ms,
+        error=result.error,
+        started_at=datetime.now(timezone.utc).isoformat(),
+    )

@@ -22,9 +22,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # Scraper service URL (for on-demand sync triggers)
-    # Set to http://scraper:8888 in Docker, leave empty to disable
-    scraper_url: str | None = None
+    # Scraper schedule - comma-separated HH:MM times in UTC
+    scrape_schedule: str = "09:00,17:00"
 
     # Pagination defaults
     default_page_size: int = 50
@@ -34,6 +33,12 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_format: Literal["json", "console"] = "json"
     environment: Literal["development", "production"] = "production"
+
+
+    @property
+    def scrape_schedule_list(self) -> list[str]:
+        """Parse schedule into list of HH:MM strings."""
+        return [s.strip() for s in self.scrape_schedule.split(",") if s.strip()]
 
 
 @lru_cache

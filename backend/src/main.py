@@ -6,14 +6,17 @@ This module sets up the FastAPI application with:
 - API routers: health, companies, jobs, favorites, settings, stats
 - Database lifecycle management (SQLAlchemy async engine)
 - Structured logging with structlog
+- Embedded scraper scheduler (runs on configured schedule)
 
 Run with:
     DATABASE_URL="postgresql://..." uvicorn backend.src.main:app --reload
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import schedule
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,6 +58,44 @@ structlog.configure(
 
 log = structlog.get_logger()
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Scraper scheduler
+# ─────────────────────────────────────────────────────────────────────────────
+
+_scrape_task: asyncio.Task | None = None
+_schedule_task: asyncio.Task | None = None
+
+
+def _setup_schedule() -> None:
+    for time_str in settings.scrape_schedule_list:
+        schedule.every().day.at(time_str).do(_trigger_scheduled_scrape)
+        log.info("schedule_registered", time=time_str)
+
+
+def _trigger_scheduled_scrape() -> None:
+    global _scrape_task
+    loop = asyncio.get_event_loop()
+    if _scrape_task is not None and not _scrape_task.done():
+        log.warning("schedule_scrape_skipped", reason="previous run still in progress")
+        return
+    _scrape_task = loop.create_task(_run_scheduled_scrape())
+
+
+async def _run_scheduled_scrape() -> None:
+    from scraper.src.main import main as scraper_main
+    log.info("scheduled_scrape_starting")
+    result = await scraper_main()
+    if result.success:
+        log.info("scheduled_scrape_complete", new_jobs=result.new_jobs)
+    else:
+        log.error("scheduled_scrape_failed", error=result.error)
+
+
+async def _schedule_loop() -> None:
+    while True:
+        schedule.run_pending()
+        await asyncio.sleep(30)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -75,9 +116,16 @@ async def lifespan(app: FastAPI):
         log.error("database_connection_failed", error=str(e))
         # Don't fail startup - health endpoint will report unhealthy
 
+    # Start scraper scheduler
+    _setup_schedule()
+    global _schedule_task
+    _schedule_task = asyncio.create_task(_schedule_loop())
+
     yield
 
-    # Shutdown: dispose of engine connections
+    # Shutdown
+    if _schedule_task:
+        _schedule_task.cancel()
     await engine.dispose()
     log.info("app_shutdown")
 

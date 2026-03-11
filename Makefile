@@ -1,7 +1,7 @@
 # HireWire Local Development Makefile
 # Usage: make help
 
-.PHONY: dev serve install db db-wait db-migrate db-reset backend frontend sync sync-local scraper-service logs clean stop-dev venv help
+.PHONY: dev serve install db db-wait db-migrate db-reset backend frontend sync sync-local logs clean stop-dev venv help
 
 # Default target
 .DEFAULT_GOAL := help
@@ -28,7 +28,7 @@ dev: db-wait venv
 	@echo "Frontend: http://localhost:5173"
 	@echo ""
 	@trap 'make stop-dev' EXIT INT TERM; \
-	DATABASE_URL=$(DB_URL) LOG_LEVEL=DEBUG LOG_FORMAT=console ENVIRONMENT=development \
+	DATABASE_URL=$(DB_URL) SCRAPE_SCHEDULE=09:00,17:00 LOG_LEVEL=DEBUG LOG_FORMAT=console ENVIRONMENT=development \
 	$(PYTHON) -m uvicorn backend.src.main:app --reload --host 0.0.0.0 --port 8000 & \
 	echo $$! > .backend.pid; \
 	cd frontend && npm run dev
@@ -72,7 +72,7 @@ db-wait: db
 
 ## backend: Run backend API server only (requires DB running, venv)
 backend: venv
-	DATABASE_URL=$(DB_URL) LOG_LEVEL=DEBUG LOG_FORMAT=console ENVIRONMENT=development \
+	DATABASE_URL=$(DB_URL) SCRAPE_SCHEDULE=09:00,17:00 LOG_LEVEL=DEBUG LOG_FORMAT=console ENVIRONMENT=development \
 	$(PYTHON) -m uvicorn backend.src.main:app --reload --host 0.0.0.0 --port 8000
 
 ## frontend: Run frontend dev server only (requires Node.js)
@@ -80,19 +80,14 @@ frontend:
 	@command -v npm >/dev/null 2>&1 || { echo "Error: npm not found. Install Node.js or use 'make serve' for Docker-based dev."; exit 1; }
 	cd frontend && npm run dev
 
-## sync: Trigger a full sync via the running scraper service
+## sync: Trigger a full sync via the running backend
 sync:
-	curl -s -X POST http://localhost:8888/trigger | python3 -m json.tool
+	curl -s -X POST http://localhost:8000/api/companies/sync-all | python3 -m json.tool
 
 ## sync-local: Run ATS scraper once locally (requires DB running, venv)
 sync-local: venv
 	DATABASE_URL=$(DB_URL) LOG_LEVEL=DEBUG LOG_FORMAT=console \
 	$(PYTHON) -m scraper.src.main
-
-## scraper-service: Run the scraper service locally (scheduled + HTTP triggers)
-scraper-service: venv
-	DATABASE_URL=$(DB_URL) LOG_LEVEL=DEBUG LOG_FORMAT=console SCRAPE_SCHEDULE=09:00,17:00 \
-	$(PYTHON) -m scraper.src.server
 
 # =============================================================================
 # Setup & Utilities

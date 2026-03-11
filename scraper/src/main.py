@@ -70,8 +70,6 @@ def configure_logging() -> None:
     )
 
 
-# Configure logging on module load
-configure_logging()
 log = structlog.get_logger()
 
 
@@ -308,6 +306,7 @@ async def main(company_id: int | None = None) -> ScrapeResult:
 
 def run_cli() -> int:
     """CLI entry point that returns exit code."""
+    configure_logging()
     result = asyncio.run(main())
     return 0 if result.success else 1
 

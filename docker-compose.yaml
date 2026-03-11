@@ -3,11 +3,7 @@
 #
 # Services:
 # - postgres  :5432  PostgreSQL 16, initialized from shared/schema.sql
-# - web       :8000  FastAPI backend + compiled Vue 3 frontend
-# - scraper   :8888  ATS scraper service (scheduled sync + HTTP triggers)
-#
-# Both web and scraper are built from the same Dockerfile using different commands.
-# The web service calls the scraper via SCRAPER_URL for on-demand sync triggers.
+# - web       :8000  FastAPI backend + compiled Vue 3 frontend + scraper scheduler
 
 services:
   # PostgreSQL database
@@ -28,32 +24,17 @@ services:
       timeout: 5s
       retries: 5
 
-  # Web application (API + frontend)
+  # Web application (API + frontend + scraper scheduler)
   web:
     build: .
-    environment:
-      DATABASE_URL: postgresql://hirewire:localdev@postgres:5432/hirewire
-      SCRAPER_URL: http://scraper:8888
-      LOG_LEVEL: DEBUG
-      LOG_FORMAT: console
-      ENVIRONMENT: development
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # Scraper service (always-on: scheduled + on-demand HTTP)
-  scraper:
-    build: .
-    command: ["python", "-m", "scraper.src.server"]
     environment:
       DATABASE_URL: postgresql://hirewire:localdev@postgres:5432/hirewire
       SCRAPE_SCHEDULE: "09:00,17:00"
       LOG_LEVEL: DEBUG
       LOG_FORMAT: console
+      ENVIRONMENT: development
     ports:
-      - "8888:8888"
+      - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy

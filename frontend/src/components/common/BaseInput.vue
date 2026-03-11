@@ -9,7 +9,7 @@ interface Props {
   disabled?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   placeholder: '',
   type: 'text',
   disabled: false

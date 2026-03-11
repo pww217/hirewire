@@ -98,6 +98,21 @@ class CompanyUpdate(BaseModel):
 
 
 # ============================================================================
+# Sync response schema (matches frontend SyncResponse contract)
+# ============================================================================
+
+class SyncResponse(BaseModel):
+    """Response from a scraper sync operation."""
+
+    success: bool
+    new_jobs: int
+    updated_jobs: int
+    duration_ms: int
+    error: str | None = None
+    started_at: str
+
+
+# ============================================================================
 # Response schemas
 # ============================================================================
 

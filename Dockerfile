@@ -1,9 +1,8 @@
 # HireWire Unified Image
-# Single image for API server and scraper with different entrypoints
+# Single image serving API, frontend, and embedded scraper scheduler
 #
 # Usage:
-#   API:     docker run hirewire (default CMD)
-#   Scraper: docker run hirewire python -m scraper.src.main
+#   docker run hirewire   (starts API + scraper scheduler together)
 
 # =============================================================================
 # Stage 1: Build frontend

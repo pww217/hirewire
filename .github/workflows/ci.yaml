@@ -10,9 +10,8 @@
 #
 # Image: ghcr.io/pww217/hirewire:latest
 #
-# The image supports two entrypoints (selected via docker-compose command):
-#   - web:     uvicorn backend.src.main:app     (default CMD)
-#   - scraper: python -m scraper.src.server     (overridden in compose)
+# The image runs API + scraper scheduler together:
+#   uvicorn backend.src.main:app   (default CMD, scheduler starts in lifespan)
 # =============================================================================
 name: CI
 

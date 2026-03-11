@@ -9,7 +9,7 @@
  *  4. Always require a company name
  *  5. Submit → POST /api/companies
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useCompaniesStore } from '@/stores/companies'
 import { useUIStore } from '@/stores/ui'
 import type { ATSType } from '@/types/api'

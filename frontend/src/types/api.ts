@@ -87,7 +87,7 @@ export interface Application {
  * Paginated job list response
  */
 export interface JobListResponse {
-  jobs: Job[]
+  jobs: JobWithDescription[]
   total: number
   page: number
   per_page: number

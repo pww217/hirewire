@@ -17,7 +17,7 @@ interface Props {
   hasFilters?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   loading: false,
   total: 0,
   selectedJobId: null,
