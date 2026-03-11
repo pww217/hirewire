@@ -115,3 +115,7 @@ class CompanyResponse(BaseModel):
     job_count: int
     enabled: bool
     created_at: datetime
+    glassdoor_id: int | None = None
+    glassdoor_rating: float | None = None
+    glassdoor_url: str | None = None
+    rating_updated_at: datetime | None = None

@@ -40,6 +40,7 @@ export interface Job {
   is_favorite: boolean
   is_hidden: boolean
   is_seen: boolean
+  glassdoor_rating: number | null
 }
 
 /**
@@ -165,6 +166,10 @@ export interface TrackedCompany {
   job_count: number
   enabled: boolean
   created_at: string
+  glassdoor_id: number | null
+  glassdoor_rating: number | null
+  glassdoor_url: string | null
+  rating_updated_at: string | null
 }
 
 export interface TrackedCompanyCreate {

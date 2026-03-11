@@ -61,6 +61,7 @@ class JobResponse(BaseModel):
     is_favorite: bool = False
     is_hidden: bool = False
     is_seen: bool = False
+    glassdoor_rating: float | None = None
 
 
 class JobDetailResponse(JobResponse):

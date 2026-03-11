@@ -20,6 +20,7 @@ import structlog
 from .config import settings
 from .db import Database, DatabaseConnectionError
 from .dedup import Deduplicator, normalize_jobs
+from .glassdoor import RATING_STALE_DAYS, lookup_company_rating
 from .models.raw_job import RawJob
 from .scrapers import AshbyScraper, GreenhouseScraper, LeverScraper, ScrapingError
 
@@ -178,6 +179,17 @@ async def main(company_id: int | None = None) -> ScrapeResult:
 
             # Update company stats
             await db.update_company_after_scrape(company.id, len(company_jobs))
+
+            # Refresh Glassdoor rating if stale or missing
+            if await db.is_rating_stale(company.id, RATING_STALE_DAYS):
+                try:
+                    gd = await lookup_company_rating(company.name)
+                    if gd:
+                        await db.update_glassdoor_rating(
+                            company.id, gd.glassdoor_id, gd.rating, gd.url
+                        )
+                except Exception as e:
+                    log.warning("glassdoor_lookup_failed", company=company.name, error=str(e))
 
             raw_jobs.extend(company_jobs)
 

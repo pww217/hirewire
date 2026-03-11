@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
+from ..models.company import TrackedCompany
 from ..models.job import Application, Job, JobSource, UserJobState
 from ..schemas.job import (
     CompanySize,
@@ -220,6 +221,29 @@ async def get_job_sources(db: AsyncSession, job_ids: list[int]) -> dict[int, lis
     return sources_map
 
 
+async def get_glassdoor_ratings(
+    db: AsyncSession, company_ids: list[int]
+) -> dict[int, float]:
+    """Get Glassdoor ratings for a set of company IDs.
+
+    Returns:
+        Dict mapping company_id to glassdoor_rating (only non-null entries)
+    """
+    if not company_ids:
+        return {}
+
+    unique_ids = list(set(cid for cid in company_ids if cid is not None))
+    if not unique_ids:
+        return {}
+
+    result = await db.execute(
+        select(TrackedCompany.id, TrackedCompany.glassdoor_rating)
+        .where(TrackedCompany.id.in_(unique_ids))
+        .where(TrackedCompany.glassdoor_rating.isnot(None))
+    )
+    return {row[0]: float(row[1]) for row in result}
+
+
 async def get_user_states(
     db: AsyncSession, job_ids: list[int]
 ) -> dict[int, tuple[bool, bool, bool]]:
@@ -277,6 +301,7 @@ async def list_all_jobs(
     job_ids = [job.id for job in jobs]
     sources_map = await get_job_sources(db, job_ids)
     states_map = await get_user_states(db, job_ids)
+    ratings_map = await get_glassdoor_ratings(db, [j.company_id for j in jobs])
 
     job_responses = []
     for job in jobs:
@@ -308,6 +333,7 @@ async def list_all_jobs(
                 is_hidden=is_hidden,
                 is_seen=is_seen,
                 description=job.description,
+                glassdoor_rating=ratings_map.get(job.company_id),
             )
         )
 
@@ -390,10 +416,11 @@ async def list_jobs(
     result = await db.execute(query)
     jobs = list(result.scalars().all())
 
-    # Get sources and user states for all jobs
+    # Get sources, user states, and Glassdoor ratings for all jobs
     job_ids = [job.id for job in jobs]
     sources_map = await get_job_sources(db, job_ids)
     states_map = await get_user_states(db, job_ids)
+    ratings_map = await get_glassdoor_ratings(db, [j.company_id for j in jobs])
 
     # Build response
     job_responses = []
@@ -425,6 +452,7 @@ async def list_jobs(
                 is_favorite=is_favorite,
                 is_hidden=is_hidden,
                 is_seen=is_seen,
+                glassdoor_rating=ratings_map.get(job.company_id),
             )
         )
 
@@ -482,6 +510,12 @@ async def get_job(
     is_hidden = job.user_state.is_hidden if job.user_state else False
     is_seen = job.user_state.is_seen if job.user_state else False
 
+    # Glassdoor rating
+    gd_rating = None
+    if job.company_id:
+        ratings_map = await get_glassdoor_ratings(db, [job.company_id])
+        gd_rating = ratings_map.get(job.company_id)
+
     return JobDetailResponse(
         id=job.id,
         title=job.title,
@@ -508,6 +542,7 @@ async def get_job(
         is_hidden=is_hidden,
         is_seen=is_seen,
         application=application,
+        glassdoor_rating=gd_rating,
     )
 
 

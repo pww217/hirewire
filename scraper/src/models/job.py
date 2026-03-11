@@ -94,4 +94,10 @@ class TrackedCompany(BaseModel):
     last_scraped: Optional[datetime] = None
     enabled: bool = True
 
+    # Glassdoor ratings (cached)
+    glassdoor_id: Optional[int] = None
+    glassdoor_rating: Optional[float] = None
+    glassdoor_url: Optional[str] = Field(default=None, max_length=500)
+    rating_updated_at: Optional[datetime] = None
+
     model_config = {"from_attributes": True}

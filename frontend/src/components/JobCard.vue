@@ -157,6 +157,18 @@ function openJobUrl(e: Event) {
     <!-- Meta: Company, Location, Badges -->
     <div class="job-card-meta">
       <span class="company">{{ job.company }}</span>
+      <span v-if="job.glassdoor_rating" class="glassdoor-rating" :title="`Glassdoor: ${job.glassdoor_rating} / 5`">
+        <svg class="star-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 1.25l1.75 3.55 3.92.57-2.84 2.77.67 3.91L8 10.27l-3.5 1.78.67-3.91L2.33 5.37l3.92-.57z"/>
+        </svg>
+        <span class="rating-value">{{ job.glassdoor_rating.toFixed(1) }}</span>
+      </span>
+      <span v-else class="glassdoor-rating no-rating" title="No Glassdoor rating found">
+        <svg class="star-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 1.25l1.75 3.55 3.92.57-2.84 2.77.67 3.91L8 10.27l-3.5 1.78.67-3.91L2.33 5.37l3.92-.57z"/>
+        </svg>
+        <span class="rating-value">N/A</span>
+      </span>
       <span class="separator">•</span>
       <span class="location">{{ locationDisplay }}</span>
       
@@ -324,6 +336,31 @@ function openJobUrl(e: Event) {
 
 .job-card-meta .company {
   font-weight: 500;
+}
+
+.glassdoor-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.glassdoor-rating .star-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.glassdoor-rating .rating-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.glassdoor-rating.no-rating {
+  color: var(--text-muted);
+  opacity: 0.5;
 }
 
 .job-card-meta .separator {

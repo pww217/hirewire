@@ -18,7 +18,13 @@ CREATE TABLE tracked_companies (
     last_scraped TIMESTAMPTZ,
     job_count INTEGER DEFAULT 0,
     enabled BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+
+    -- Glassdoor ratings (cached, refreshed weekly)
+    glassdoor_id INTEGER,
+    glassdoor_rating DECIMAL(2,1),     -- e.g. 4.2 out of 5.0
+    glassdoor_url VARCHAR(500),
+    rating_updated_at TIMESTAMPTZ
 );
 
 CREATE INDEX ix_tracked_companies_ats_type ON tracked_companies(ats_type);

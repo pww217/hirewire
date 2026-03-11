@@ -420,6 +420,39 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute(query, company_id, job_count)
 
+    async def is_rating_stale(self, company_id: int, stale_days: int = 7) -> bool:
+        """Check if a company's Glassdoor rating needs refreshing."""
+        query = """
+            SELECT rating_updated_at
+            FROM tracked_companies
+            WHERE id = $1
+        """
+        async with self.pool.acquire() as conn:
+            ts = await conn.fetchval(query, company_id)
+            if ts is None:
+                return True
+            from datetime import datetime, timezone, timedelta
+            return datetime.now(timezone.utc) - ts > timedelta(days=stale_days)
+
+    async def update_glassdoor_rating(
+        self,
+        company_id: int,
+        glassdoor_id: int,
+        rating: float | None,
+        glassdoor_url: str,
+    ) -> None:
+        """Persist Glassdoor rating data for a tracked company."""
+        query = """
+            UPDATE tracked_companies
+            SET glassdoor_id = $2,
+                glassdoor_rating = $3,
+                glassdoor_url = $4,
+                rating_updated_at = NOW()
+            WHERE id = $1
+        """
+        async with self.pool.acquire() as conn:
+            await conn.execute(query, company_id, glassdoor_id, rating, glassdoor_url)
+
     # =========================================================================
     # Statistics queries
     # =========================================================================
