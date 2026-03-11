@@ -1,144 +1,269 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import type { Job, JobDetail, JobListParams, JobListResponse, CompanySize } from '@/types/api'
+import { shallowRef, ref, computed } from 'vue'
+import MiniSearch from 'minisearch'
+import type { JobWithDescription, JobDetail, JobBulkResponse } from '@/types/api'
 import { useApi } from '@/composables/useApi'
-import { useSettingsStore } from './settings'
 import { useCompaniesStore } from './companies'
 
-export type SortBy = 'date_posted' | 'company' | 'title'
+export type SortBy = 'date_posted' | 'company' | 'title' | 'first_seen'
 export type SortOrder = 'asc' | 'desc'
 
 export interface FilterState {
   q: string
   location: string
   isRemote: boolean | null
-  companySizes: CompanySize[]
   jobType: string | null
-  source: string | null
   postedAfter: string | null
+  includedKeywords: string[]
+  excludedKeywords: string[]
+  favoritesOnly: boolean
 }
 
 export const DEFAULT_FILTERS: FilterState = {
   q: '',
   location: '',
   isRemote: null,
-  companySizes: [],
   jobType: null,
-  source: null,
   postedAfter: null,
+  includedKeywords: [],
+  excludedKeywords: [],
+  favoritesOnly: false,
+}
+
+/** Strip HTML tags for plain-text search indexing */
+function stripHtml(html: string | null | undefined): string {
+  if (!html) return ''
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** Compare dates for sorting, nulls last */
+function compareDates(a: string | null, b: string | null, asc: boolean): number {
+  if (!a && !b) return 0
+  if (!a) return 1
+  if (!b) return -1
+  const diff = new Date(a).getTime() - new Date(b).getTime()
+  return asc ? diff : -diff
 }
 
 export const useJobsStore = defineStore('jobs', () => {
   const api = useApi()
-  
-  // State
-  const jobs = ref<Job[]>([])
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  // shallowRef avoids deep reactivity overhead on potentially thousands of objects
+  const allJobs = shallowRef<JobWithDescription[]>([])
   const currentJob = ref<JobDetail | null>(null)
-  const total = ref(0)
-  const page = ref(1)
-  const perPage = ref(25)  // Reduced from 50 for better UX - less cognitive load
-  const totalPages = ref(0)
-  
+
   const filters = ref<FilterState>({ ...DEFAULT_FILTERS })
   const sortBy = ref<SortBy>('date_posted')
   const sortOrder = ref<SortOrder>('desc')
-  
+
   const isLoading = ref(false)
   const error = ref<string | null>(null)
-  
-  // Getters
-  const hasJobs = computed(() => jobs.value.length > 0)
-  const hasNextPage = computed(() => page.value < totalPages.value)
-  const hasPrevPage = computed(() => page.value > 1)
-  
+
+  // ── MiniSearch index ───────────────────────────────────────────────────────
+  let searchIndex = new MiniSearch<{ id: number; title: string; company: string; location: string; description: string }>({
+    fields: ['title', 'company', 'location', 'description'],
+    storeFields: ['id'],
+    searchOptions: {
+      prefix: true,
+      fuzzy: 0.2,
+      boost: { title: 3, company: 2, location: 1.5, description: 1 },
+    },
+  })
+
+  // IDs matching current text search; null = no text search active
+  const searchResultIds = ref<Set<number> | null>(null)
+
+  function buildSearchIndex(jobs: JobWithDescription[]) {
+    searchIndex = new MiniSearch({
+      fields: ['title', 'company', 'location', 'description'],
+      storeFields: ['id'],
+      searchOptions: {
+        prefix: true,
+        fuzzy: 0.2,
+        boost: { title: 3, company: 2, location: 1.5, description: 1 },
+      },
+    })
+    searchIndex.addAll(
+      jobs.map(j => ({
+        id: j.id,
+        title: j.title,
+        company: j.company,
+        location: [j.location_raw, j.location_city, j.location_state, j.location_country]
+          .filter(Boolean)
+          .join(' '),
+        description: stripHtml(j.description),
+      }))
+    )
+  }
+
+  // ── Debounced search ───────────────────────────────────────────────────────
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+  function runSearch(q: string) {
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+    if (!q.trim()) {
+      searchResultIds.value = null
+      return
+    }
+    searchDebounceTimer = setTimeout(() => {
+      const results = searchIndex.search(q, { combineWith: 'AND' })
+      searchResultIds.value = new Set(results.map(r => r.id))
+    }, 300)
+  }
+
+  // ── Getters ────────────────────────────────────────────────────────────────
   const activeFilterCount = computed(() => {
     let count = 0
     if (filters.value.q) count++
     if (filters.value.location) count++
     if (filters.value.isRemote !== null) count++
-    if (filters.value.companySizes.length > 0) count++
     if (filters.value.jobType) count++
-    if (filters.value.source) count++
     if (filters.value.postedAfter) count++
+    if (filters.value.includedKeywords.length > 0) count++
+    if (filters.value.excludedKeywords.length > 0) count++
+    if (filters.value.favoritesOnly) count++
     return count
   })
-  
-  // Actions
-  
-  /**
-   * Fetch jobs from API with current filters and pagination
-   */
-  async function fetchJobs(resetPage = false) {
-    if (resetPage) {
-      page.value = 1
+
+  const filteredJobs = computed(() => {
+    const companiesStore = useCompaniesStore()
+    let result = allJobs.value
+
+    // 1. Company scope (sidebar selection)
+    if (companiesStore.selectedCompanyId !== null) {
+      const cid = companiesStore.selectedCompanyId
+      result = result.filter(j => j.company_id === cid)
     }
-    
+
+    // 2. Full-text search via MiniSearch
+    if (filters.value.q.trim() && searchResultIds.value !== null) {
+      const ids = searchResultIds.value
+      result = result.filter(j => ids.has(j.id))
+    }
+
+    // 3. Location substring match
+    if (filters.value.location) {
+      const loc = filters.value.location.toLowerCase()
+      result = result.filter(j =>
+        (j.location_city?.toLowerCase().includes(loc)) ||
+        (j.location_state?.toLowerCase().includes(loc)) ||
+        (j.location_raw?.toLowerCase().includes(loc)) ||
+        (j.location_country?.toLowerCase().includes(loc))
+      )
+    }
+
+    // 4. Remote only
+    if (filters.value.isRemote === true) {
+      result = result.filter(j => j.is_remote)
+    }
+
+    // 5. Job type
+    if (filters.value.jobType) {
+      const jt = filters.value.jobType
+      result = result.filter(j => j.job_type === jt)
+    }
+
+    // 6. Posted after
+    if (filters.value.postedAfter) {
+      const now = new Date()
+      let cutoff: Date | null = null
+      switch (filters.value.postedAfter) {
+        case 'today':
+          cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+          break
+        case 'week':
+          cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+          break
+        case 'month':
+          cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+          break
+      }
+      if (cutoff) {
+        const cutoffMs = cutoff.getTime()
+        result = result.filter(j => j.date_posted && new Date(j.date_posted).getTime() >= cutoffMs)
+      }
+    }
+
+    // 8. Included keywords (OR) — searches title and description
+    if (filters.value.includedKeywords.length > 0) {
+      const kws = filters.value.includedKeywords.map(k => k.toLowerCase())
+      result = result.filter(j => {
+        const haystack = `${j.title} ${stripHtml(j.description)}`.toLowerCase()
+        return kws.some(kw => haystack.includes(kw))
+      })
+    }
+
+    // 9. Excluded keywords — title only
+    if (filters.value.excludedKeywords.length > 0) {
+      const exKws = filters.value.excludedKeywords.map(k => k.toLowerCase())
+      result = result.filter(j => {
+        const title = j.title.toLowerCase()
+        return !exKws.some(kw => title.includes(kw))
+      })
+    }
+
+    // 10. Favorites only
+    if (filters.value.favoritesOnly) {
+      result = result.filter(j => j.is_favorite)
+    }
+
+    // 11. Sort
+    const asc = sortOrder.value === 'asc'
+    return [...result].sort((a, b) => {
+      switch (sortBy.value) {
+        case 'date_posted':
+          return compareDates(a.date_posted, b.date_posted, asc)
+        case 'first_seen':
+          return compareDates(a.first_seen, b.first_seen, asc)
+        case 'company': {
+          const cmp = a.company.localeCompare(b.company)
+          return asc ? cmp : -cmp
+        }
+        case 'title': {
+          const cmp = a.title.localeCompare(b.title)
+          return asc ? cmp : -cmp
+        }
+        default:
+          return compareDates(a.date_posted, b.date_posted, asc)
+      }
+    })
+  })
+
+  const total = computed(() => filteredJobs.value.length)
+  const hasJobs = computed(() => allJobs.value.length > 0)
+
+  /** Count of all (non-hidden) jobs not yet seen by the user */
+  const unseenTotal = computed(() => allJobs.value.filter(j => !j.is_seen).length)
+
+  /** Map of company_id -> unseen job count */
+  const unseenByCompany = computed(() => {
+    const map = new Map<number, number>()
+    for (const job of allJobs.value) {
+      if (!job.is_seen && job.company_id !== null) {
+        map.set(job.company_id, (map.get(job.company_id) ?? 0) + 1)
+      }
+    }
+    return map
+  })
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+
+  /**
+   * Fetch all active jobs with descriptions from the bulk endpoint.
+   * Called on mount and after any sync operation.
+   */
+  async function fetchAllJobs() {
     isLoading.value = true
     error.value = null
-    
     try {
-      const settingsStore = useSettingsStore()
-      const companiesStore = useCompaniesStore()
-      
-      const params: JobListParams & { preferred_locations?: string[], included_keywords?: string[], excluded_keywords?: string[] } = {
-        page: page.value,
-        per_page: perPage.value,
-        sort_by: sortBy.value,
-        sort_order: sortOrder.value,
-        include_hidden: false,
-        favorites_only: false,
+      const response = await api.get<JobBulkResponse>('/api/jobs/all')
+      allJobs.value = response.jobs
+      buildSearchIndex(response.jobs)
+      // Re-run text search against new index if query is active
+      if (filters.value.q.trim()) {
+        runSearch(filters.value.q)
       }
-
-      // Scope to selected company if one is active
-      if (companiesStore.selectedCompanyId !== null) {
-        params.company_id = companiesStore.selectedCompanyId
-      }
-      
-      // Apply filters
-      if (filters.value.q) params.q = filters.value.q
-      if (filters.value.location) params.location = filters.value.location
-      if (filters.value.isRemote !== null) params.is_remote = filters.value.isRemote
-      if (filters.value.companySizes.length > 0) {
-        params.company_size = filters.value.companySizes
-      }
-      if (filters.value.jobType) params.job_type = filters.value.jobType as JobListParams['job_type']
-      if (filters.value.source) params.source = filters.value.source
-      if (filters.value.postedAfter) {
-        // Convert relative to absolute date
-        const now = new Date()
-        let date: Date | null = null
-        switch (filters.value.postedAfter) {
-          case 'today':
-            date = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-            break
-          case 'week':
-            date = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-            break
-          case 'month':
-            date = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-            break
-        }
-        if (date) {
-          params.posted_after = date.toISOString().split('T')[0]
-        }
-      }
-      
-      // Apply settings-based filters when no explicit location filter is active
-      if (!filters.value.location && settingsStore.preferredLocations.length > 0) {
-        params.preferred_locations = settingsStore.preferredLocations
-      }
-      if (settingsStore.includedKeywords.length > 0) {
-        params.included_keywords = settingsStore.includedKeywords
-      }
-      if (settingsStore.excludedKeywords.length > 0) {
-        params.excluded_keywords = settingsStore.excludedKeywords
-      }
-      
-      const response = await api.get<JobListResponse>('/api/jobs', params as unknown as Record<string, unknown>)
-      
-      jobs.value = response.jobs
-      total.value = response.total
-      totalPages.value = response.total_pages
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to load jobs'
       console.error('Failed to fetch jobs:', e)
@@ -146,14 +271,13 @@ export const useJobsStore = defineStore('jobs', () => {
       isLoading.value = false
     }
   }
-  
+
   /**
-   * Fetch single job detail
+   * Fetch single job detail (still uses the individual endpoint)
    */
   async function fetchJobDetail(id: number) {
     isLoading.value = true
     error.value = null
-    
     try {
       currentJob.value = await api.get<JobDetail>(`/api/jobs/${id}`)
     } catch (e) {
@@ -163,123 +287,88 @@ export const useJobsStore = defineStore('jobs', () => {
       isLoading.value = false
     }
   }
-  
+
   /**
-   * Set filters and refetch
+   * Update filters. Text search (q) triggers debounced MiniSearch query.
    */
   function setFilters(newFilters: Partial<FilterState>) {
+    const prev = filters.value.q
     filters.value = { ...filters.value, ...newFilters }
-    fetchJobs(true)  // Reset to page 1
+    if (newFilters.q !== undefined && newFilters.q !== prev) {
+      runSearch(newFilters.q)
+    }
   }
-  
-  /**
-   * Clear all filters
-   */
+
   function clearFilters() {
     filters.value = { ...DEFAULT_FILTERS }
-    fetchJobs(true)
+    searchResultIds.value = null
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer)
+      searchDebounceTimer = null
+    }
   }
-  
-  /**
-   * Set sort and refetch
-   */
+
   function setSort(by: SortBy, order: SortOrder) {
     sortBy.value = by
     sortOrder.value = order
-    fetchJobs(true)
   }
-  
+
   /**
-   * Go to specific page
+   * Update a job's is_favorite / is_hidden in local state without refetch.
    */
-  function goToPage(newPage: number) {
-    if (newPage >= 1 && newPage <= totalPages.value) {
-      page.value = newPage
-      fetchJobs()
-    }
+  function updateJobInList(jobId: number, updates: Partial<JobWithDescription>) {
+    allJobs.value = allJobs.value.map(j => j.id === jobId ? { ...j, ...updates } : j)
   }
-  
+
   /**
-   * Update a job in the local state (after favorite/hide)
+   * Hide a job locally (remove from visible list immediately)
    */
-  function updateJobInList(jobId: number, updates: Partial<Job>) {
-    const index = jobs.value.findIndex(j => j.id === jobId)
-    if (index !== -1) {
-      jobs.value[index] = { ...jobs.value[index], ...updates }
-    }
-  }
-  
-  /**
-   * Hide a job
-   * Returns the hidden job data for potential undo
-   */
-  async function hideJob(jobId: number): Promise<Job | null> {
-    // Store the job data before hiding for undo
-    const jobToHide = jobs.value.find(j => j.id === jobId)
-    
+  async function hideJob(jobId: number): Promise<JobWithDescription | null> {
+    const jobToHide = allJobs.value.find(j => j.id === jobId) ?? null
     try {
       await api.post(`/api/jobs/${jobId}/hide`)
-      // Remove from list since we don't show hidden jobs
-      jobs.value = jobs.value.filter(j => j.id !== jobId)
-      total.value = Math.max(0, total.value - 1)
-      return jobToHide || null
+      allJobs.value = allJobs.value.filter(j => j.id !== jobId)
+      return jobToHide
     } catch (e) {
       console.error('Failed to hide job:', e)
       throw e
     }
   }
-  
+
   /**
-   * Unhide a job (undo hide action)
+   * Unhide a job (undo hide)
    */
-  async function unhideJob(jobId: number, jobData?: Job) {
+  async function unhideJob(jobId: number, jobData?: JobWithDescription) {
     try {
       await api.delete(`/api/jobs/${jobId}/hide`)
-      // Add back to list if we have the job data
-      if (jobData && !jobs.value.find(j => j.id === jobId)) {
-        // Insert at original position or beginning
-        jobs.value.unshift(jobData)
-        total.value += 1
+      if (jobData && !allJobs.value.find(j => j.id === jobId)) {
+        allJobs.value = [jobData, ...allJobs.value]
       } else {
-        // Refresh the list to get the job back
-        await fetchJobs(false)
+        await fetchAllJobs()
       }
     } catch (e) {
       console.error('Failed to unhide job:', e)
       throw e
     }
   }
-  
-  // ─────────────────────────────────────────────────────────────────────────
-  // AUTO-REFRESH
-  // ─────────────────────────────────────────────────────────────────────────
-  
-  const AUTO_REFRESH_INTERVAL = 60_000  // 60 seconds
+
+  // ── Auto-refresh ───────────────────────────────────────────────────────────
+  const AUTO_REFRESH_INTERVAL = 60_000
   const lastRefresh = ref<Date>(new Date())
   const autoRefreshEnabled = ref(true)
   let refreshTimer: ReturnType<typeof setInterval> | null = null
-  
-  /**
-   * Start auto-refresh timer
-   * Pauses when tab is not visible to save resources
-   */
+
   function startAutoRefresh() {
     if (refreshTimer) return
-    
     refreshTimer = setInterval(() => {
       if (autoRefreshEnabled.value && document.visibilityState === 'visible') {
-        fetchJobs(false)  // silent refresh, don't reset page
+        fetchAllJobs()
         lastRefresh.value = new Date()
       }
     }, AUTO_REFRESH_INTERVAL)
-    
-    // Pause when tab hidden
     document.addEventListener('visibilitychange', handleVisibilityChange)
   }
-  
-  /**
-   * Stop auto-refresh timer
-   */
+
   function stopAutoRefresh() {
     if (refreshTimer) {
       clearInterval(refreshTimer)
@@ -287,72 +376,59 @@ export const useJobsStore = defineStore('jobs', () => {
     }
     document.removeEventListener('visibilitychange', handleVisibilityChange)
   }
-  
-  /**
-   * Toggle auto-refresh on/off
-   */
+
   function toggleAutoRefresh() {
     autoRefreshEnabled.value = !autoRefreshEnabled.value
   }
-  
-  /**
-   * Handle tab visibility changes
-   */
+
   function handleVisibilityChange() {
     if (document.visibilityState === 'visible' && autoRefreshEnabled.value) {
-      // Refresh immediately when returning to tab if stale
       const elapsed = Date.now() - lastRefresh.value.getTime()
       if (elapsed > AUTO_REFRESH_INTERVAL) {
-        fetchJobs(false)
+        fetchAllJobs()
         lastRefresh.value = new Date()
       }
     }
   }
-  
-  /**
-   * Format last refresh time for display
-   */
-  const lastRefreshFormatted = computed(() => {
-    return lastRefresh.value.toLocaleTimeString()
-  })
-  
+
+  const lastRefreshFormatted = computed(() => lastRefresh.value.toLocaleTimeString())
+
   return {
     // State
-    jobs,
+    allJobs,
     currentJob,
-    total,
-    page,
-    perPage,
-    totalPages,
     filters,
     sortBy,
     sortOrder,
     isLoading,
     error,
-    
+    searchResultIds,
+
     // Auto-refresh state
     lastRefresh,
     lastRefreshFormatted,
     autoRefreshEnabled,
-    
+
     // Getters
+    filteredJobs,
+    total,
     hasJobs,
-    hasNextPage,
-    hasPrevPage,
     activeFilterCount,
-    
+    unseenTotal,
+    unseenByCompany,
+
     // Actions
-    fetchJobs,
+    fetchAllJobs,
     fetchJobDetail,
     setFilters,
     clearFilters,
     setSort,
-    goToPage,
     updateJobInList,
     hideJob,
     unhideJob,
-    
-    // Auto-refresh actions
+    runSearch,
+
+    // Auto-refresh
     startAutoRefresh,
     stopAutoRefresh,
     toggleAutoRefresh,

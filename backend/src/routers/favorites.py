@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.job import Job, UserJobState
-from ..schemas.job import FavoriteResponse, HideResponse
+from ..schemas.job import FavoriteResponse, HideResponse, SeenResponse
 
 router = APIRouter(tags=["favorites"])
 log = structlog.get_logger()
@@ -225,4 +225,40 @@ async def unhide_job(
         id=job_id,
         is_hidden=False,
         hidden_at=None,
+    )
+
+
+@router.post("/jobs/{job_id}/seen", response_model=SeenResponse)
+async def mark_seen(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> SeenResponse:
+    """Mark a job as seen by the user.
+
+    Args:
+        job_id: The job ID to mark as seen
+
+    Returns:
+        Updated seen state
+
+    Raises:
+        HTTPException: 404 if job not found
+    """
+    log.info("mark_seen_request", job_id=job_id)
+
+    await get_job_or_404(db, job_id)
+
+    state = await get_or_create_user_state(db, job_id)
+
+    if not state.is_seen:
+        state.is_seen = True
+        state.seen_at = datetime.now(timezone.utc)
+        await db.flush()
+
+    log.info("mark_seen_success", job_id=job_id)
+
+    return SeenResponse(
+        id=job_id,
+        is_seen=True,
+        seen_at=state.seen_at,
     )

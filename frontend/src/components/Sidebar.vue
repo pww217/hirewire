@@ -3,7 +3,7 @@
  * Sidebar - Company-first navigation
  * Shows tracked companies with job counts, plus All Jobs / Favorites entries.
  */
-import { computed, ref, nextTick, onMounted, watch } from 'vue'
+import { computed, ref, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCompaniesStore } from '@/stores/companies'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -29,26 +29,8 @@ const editingName = ref('')
 
 const companySearch = ref('')
 
-// --- "New jobs" indicator via localStorage ---
-const VIEWED_KEY = 'hirewire_company_viewed'
-
-function getViewedMap(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem(VIEWED_KEY) || '{}')
-  } catch { return {} }
-}
-
-function markViewed(id: number) {
-  const map = getViewedMap()
-  map[String(id)] = new Date().toISOString()
-  localStorage.setItem(VIEWED_KEY, JSON.stringify(map))
-}
-
-function hasNewJobs(company: { id: number; last_scraped: string | null; job_count: number }): boolean {
-  if (!company.last_scraped || company.job_count === 0) return false
-  const lastViewed = getViewedMap()[String(company.id)]
-  if (!lastViewed) return true
-  return new Date(company.last_scraped) > new Date(lastViewed)
+function hasUnseenJobs(companyId: number): boolean {
+  return (jobsStore.unseenByCompany.get(companyId) ?? 0) > 0
 }
 
 // --- Relative time helper ---
@@ -74,7 +56,6 @@ const filteredCompanies = computed(() => {
 
 function selectCompany(id: number | null) {
   companiesStore.selectCompany(id)
-  if (id !== null) markViewed(id)
   if (route.name !== 'dashboard') {
     router.push('/')
   }
@@ -92,9 +73,7 @@ onMounted(() => {
   companiesStore.fetchCompanies()
 })
 
-watch(() => companiesStore.selectedCompanyId, () => {
-  jobsStore.fetchJobs(true)
-})
+// No fetch needed on company switch — filteredJobs is a computed over allJobs
 
 // --- Inline rename ---
 function startEditing(id: number, name: string, e: Event) {
@@ -132,7 +111,7 @@ async function syncAll() {
     await api.post('/api/companies/sync-all')
     uiStore.showSuccess('Full sync triggered')
     await companiesStore.fetchCompanies()
-    jobsStore.fetchJobs(true)
+    jobsStore.fetchAllJobs()
   } catch {
     uiStore.showError('Sync failed or scraper not available')
   } finally {
@@ -147,9 +126,7 @@ async function deleteCompany(id: number, e: Event) {
   isDeletingId.value = id
   try {
     await companiesStore.deleteCompany(id)
-    if (companiesStore.selectedCompanyId === null) {
-      jobsStore.fetchJobs(true)
-    }
+    jobsStore.fetchAllJobs()
   } catch {
     uiStore.showError('Failed to delete company')
   } finally {
@@ -207,8 +184,8 @@ async function syncCompany(id: number, e: Event) {
       >
         <span class="nav-icon">📋</span>
         <span class="nav-label">All Jobs</span>
-        <span v-if="jobsStore.total > 0 && isAllJobsActive" class="nav-badge">
-          {{ jobsStore.total.toLocaleString() }}
+        <span v-if="jobsStore.unseenTotal > 0" class="nav-badge">
+          {{ jobsStore.unseenTotal.toLocaleString() }}
         </span>
       </RouterLink>
 
@@ -225,14 +202,6 @@ async function syncCompany(id: number, e: Event) {
     <div class="section-header">
       <span class="section-label">Companies</span>
       <div class="section-actions">
-        <button
-          class="add-btn"
-          :class="{ spinning: isSyncingAll }"
-          title="Sync all companies"
-          @click="syncAll"
-        >
-          ↻
-        </button>
         <button class="add-btn" title="Add company" @click="emit('open-add-company')">
           +
         </button>
@@ -264,7 +233,7 @@ async function syncCompany(id: number, e: Event) {
         :title="`Last synced: ${timeAgo(company.last_scraped)}`"
         @click="selectCompany(company.id)"
       >
-        <span v-if="hasNewJobs(company)" class="new-dot" aria-label="New jobs"></span>
+        <span v-if="hasUnseenJobs(company.id)" class="new-dot" aria-label="Unseen jobs"></span>
         <template v-if="editingId === company.id">
           <input
             v-model="editingName"
@@ -278,8 +247,8 @@ async function syncCompany(id: number, e: Event) {
         <template v-else>
           <span class="company-name">{{ company.name }}</span>
         </template>
-        <span v-if="company.job_count > 0 && editingId !== company.id" class="company-badge">
-          {{ company.job_count }}
+        <span v-if="(jobsStore.unseenByCompany.get(company.id) ?? 0) > 0 && editingId !== company.id" class="company-badge">
+          {{ jobsStore.unseenByCompany.get(company.id) }}
         </span>
         <button
           v-if="editingId !== company.id"
@@ -311,6 +280,16 @@ async function syncCompany(id: number, e: Event) {
 
     <!-- Footer -->
     <div class="sidebar-footer">
+      <button
+        class="sync-all-btn"
+        :class="{ spinning: isSyncingAll }"
+        :disabled="isSyncingAll"
+        title="Sync all companies"
+        @click="syncAll"
+      >
+        <span class="sync-icon">↻</span>
+        <span class="sync-label">{{ isSyncingAll ? 'Syncing...' : 'Sync All' }}</span>
+      </button>
       <RouterLink to="/settings" class="nav-link footer-nav-link" :class="{ active: route.name === 'settings' }">
         <span class="nav-icon">⚙️</span>
         <span class="nav-label">Settings</span>
@@ -672,9 +651,51 @@ async function syncCompany(id: number, e: Event) {
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .footer-nav-link {
   margin-bottom: 0;
+}
+
+.sync-all-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+}
+
+.sync-all-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sync-all-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sync-icon {
+  font-size: 1rem;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sync-all-btn.spinning .sync-icon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
 }
 </style>

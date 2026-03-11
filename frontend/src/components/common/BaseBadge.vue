@@ -3,7 +3,7 @@
  * BaseBadge - Reusable badge component
  */
 interface Props {
-  variant?: 'default' | 'new' | 'remote' | 'source' | 'favorite'
+  variant?: 'default' | 'new' | 'stale' | 'remote' | 'source' | 'favorite'
 }
 
 withDefaults(defineProps<Props>(), {
@@ -34,6 +34,11 @@ withDefaults(defineProps<Props>(), {
 .badge-new {
   background: rgba(34, 197, 94, 0.15);
   color: var(--status-new);
+}
+
+.badge-stale {
+  background: rgba(234, 179, 8, 0.15);
+  color: var(--status-stale);
 }
 
 .badge-remote {

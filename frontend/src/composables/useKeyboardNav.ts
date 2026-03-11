@@ -1,5 +1,5 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import type { Job } from '@/types/api'
+import type { JobWithDescription } from '@/types/api'
 
 /**
  * Keyboard navigation for job list
@@ -14,7 +14,7 @@ import type { Job } from '@/types/api'
  * - esc: Close panels/clear selection
  */
 export function useKeyboardNav(options: {
-  jobs: () => Job[]
+  jobs: () => JobWithDescription[]
   onFavorite: (jobId: number) => void
   onHide: (jobId: number) => void
   onOpenJob: (jobId: number) => void
@@ -24,7 +24,7 @@ export function useKeyboardNav(options: {
   const selectedIndex = ref(-1)
   const isEnabled = ref(true)
 
-  const jobs = computed(() => options.jobs())
+  const jobs = computed<JobWithDescription[]>(() => options.jobs())
   
   const selectedJob = computed(() => {
     if (selectedIndex.value >= 0 && selectedIndex.value < jobs.value.length) {

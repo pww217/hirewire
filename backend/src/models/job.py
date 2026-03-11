@@ -150,10 +150,14 @@ class UserJobState(Base):
     )
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_seen: Mapped[bool] = mapped_column(Boolean, default=False)
     favorited_at: Mapped["Optional[datetime]"] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     hidden_at: Mapped["Optional[datetime]"] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    seen_at: Mapped["Optional[datetime]"] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
@@ -171,6 +175,11 @@ class UserJobState(Base):
             "ix_user_job_state_hidden",
             "is_hidden",
             postgresql_where=(is_hidden == True),
+        ),
+        Index(
+            "ix_user_job_state_seen",
+            "is_seen",
+            postgresql_where=(is_seen == False),
         ),
     )
 

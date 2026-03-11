@@ -113,13 +113,16 @@ CREATE TABLE user_job_state (
     job_id INTEGER NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_hidden BOOLEAN DEFAULT FALSE,
+    is_seen BOOLEAN DEFAULT FALSE,
     favorited_at TIMESTAMPTZ,
-    hidden_at TIMESTAMPTZ
+    hidden_at TIMESTAMPTZ,
+    seen_at TIMESTAMPTZ
 );
 
 CREATE INDEX ix_user_job_state_job_id ON user_job_state(job_id);
 CREATE INDEX ix_user_job_state_favorite ON user_job_state(is_favorite) WHERE is_favorite = TRUE;
 CREATE INDEX ix_user_job_state_hidden ON user_job_state(is_hidden) WHERE is_hidden = TRUE;
+CREATE INDEX ix_user_job_state_seen ON user_job_state(is_seen) WHERE is_seen = FALSE;
 
 -- ============================================================================
 -- APPLICATIONS TABLE - Track application status

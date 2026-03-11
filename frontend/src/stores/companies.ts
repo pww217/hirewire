@@ -82,10 +82,8 @@ export const useCompaniesStore = defineStore('companies', () => {
       // Best-effort — scraper may not be reachable
     }
     await fetchCompanies()
-    if (selectedCompanyId.value === id) {
-      const { useJobsStore } = await import('./jobs')
-      useJobsStore().fetchJobs(true)
-    }
+    const { useJobsStore } = await import('./jobs')
+    useJobsStore().fetchAllJobs()
     return result
   }
 

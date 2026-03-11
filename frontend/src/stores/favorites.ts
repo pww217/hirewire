@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Job, JobListResponse } from '@/types/api'
+import type { JobWithDescription, JobListResponse } from '@/types/api'
 import { useApi } from '@/composables/useApi'
 import { useJobsStore } from './jobs'
 
@@ -13,7 +13,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
   const favoriteIds = ref<Set<number>>(new Set())
   
   /** Full favorite jobs list (for Favorites page) */
-  const favorites = ref<Job[]>([])
+  const favorites = ref<JobWithDescription[]>([])
   
   const isLoading = ref(false)
   const error = ref<string | null>(null)
@@ -83,7 +83,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
     
     // Remove from favorites list if present
     const index = favorites.value.findIndex(j => j.id === jobId)
-    let removed: Job | null = null
+    let removed: JobWithDescription | null = null
     if (index !== -1) {
       removed = favorites.value[index]
       favorites.value.splice(index, 1)
@@ -117,7 +117,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
    * Initialize favorites from job list
    * Call this after fetching jobs to sync the favoriteIds set
    */
-  function syncFromJobs(jobs: Job[]) {
+  function syncFromJobs(jobs: JobWithDescription[]) {
     jobs.forEach(job => {
       if (job.is_favorite) {
         favoriteIds.value.add(job.id)

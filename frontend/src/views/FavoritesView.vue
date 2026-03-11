@@ -6,6 +6,7 @@ import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useUIStore } from '@/stores/ui'
+import { useViewedStore } from '@/stores/viewed'
 import JobList from '@/components/JobList.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -13,6 +14,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 const router = useRouter()
 const favoritesStore = useFavoritesStore()
 const uiStore = useUIStore()
+const viewedStore = useViewedStore()
 
 onMounted(() => {
   favoritesStore.fetchFavorites()
@@ -28,6 +30,7 @@ async function handleFavorite(jobId: number) {
 }
 
 function handleJobClick(jobId: number) {
+  viewedStore.markAsViewed(jobId)
   router.push({ name: 'job-detail', params: { id: jobId } })
 }
 </script>
@@ -62,7 +65,6 @@ function handleJobClick(jobId: number) {
         v-else
         :jobs="favoritesStore.favorites"
         :total="favoritesStore.favoriteCount"
-        :total-pages="1"
         @favorite="handleFavorite"
         @job-click="handleJobClick"
       />

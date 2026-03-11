@@ -1,6 +1,7 @@
 """Job listing and detail endpoints.
 
 Implements:
+- GET /api/jobs/all - Bulk fetch all active jobs with descriptions (client-side filtering)
 - GET /api/jobs - List jobs with filters, pagination, sorting
 - GET /api/jobs/{id} - Get single job with full description
 """
@@ -18,10 +19,12 @@ from ..database import get_db
 from ..models.job import Application, Job, JobSource, UserJobState
 from ..schemas.job import (
     CompanySize,
+    JobBulkResponse,
     JobDetailResponse,
     JobListResponse,
     JobResponse,
     JobType,
+    JobWithDescription,
 )
 
 router = APIRouter(tags=["jobs"])
@@ -219,26 +222,96 @@ async def get_job_sources(db: AsyncSession, job_ids: list[int]) -> dict[int, lis
 
 async def get_user_states(
     db: AsyncSession, job_ids: list[int]
-) -> dict[int, tuple[bool, bool]]:
-    """Get user state (favorite/hidden) for a list of jobs.
+) -> dict[int, tuple[bool, bool, bool]]:
+    """Get user state (favorite/hidden/seen) for a list of jobs.
 
     Args:
         db: Database session
         job_ids: List of job IDs
 
     Returns:
-        Dict mapping job_id to (is_favorite, is_hidden) tuple
+        Dict mapping job_id to (is_favorite, is_hidden, is_seen) tuple
     """
     if not job_ids:
         return {}
 
     result = await db.execute(
         select(
-            UserJobState.job_id, UserJobState.is_favorite, UserJobState.is_hidden
+            UserJobState.job_id,
+            UserJobState.is_favorite,
+            UserJobState.is_hidden,
+            UserJobState.is_seen,
         ).where(UserJobState.job_id.in_(job_ids))
     )
 
-    return {row.job_id: (row.is_favorite, row.is_hidden) for row in result}
+    return {row.job_id: (row.is_favorite, row.is_hidden, row.is_seen) for row in result}
+
+
+@router.get("/jobs/all", response_model=JobBulkResponse)
+async def list_all_jobs(
+    db: AsyncSession = Depends(get_db),
+) -> JobBulkResponse:
+    """Return all active, non-hidden jobs with descriptions for client-side filtering.
+
+    No pagination or filtering — the full dataset is returned in one response.
+    The frontend loads this once on mount and filters/searches entirely in memory.
+    """
+    log.info("list_all_jobs_request")
+
+    query = (
+        select(Job)
+        .outerjoin(UserJobState, Job.id == UserJobState.job_id)
+        .where(Job.is_active == True)  # noqa: E712
+        .where(
+            or_(
+                UserJobState.is_hidden.is_(False),
+                UserJobState.is_hidden.is_(None),
+            )
+        )
+        .order_by(Job.date_posted.desc().nulls_last())
+    )
+
+    result = await db.execute(query)
+    jobs = list(result.scalars().all())
+
+    job_ids = [job.id for job in jobs]
+    sources_map = await get_job_sources(db, job_ids)
+    states_map = await get_user_states(db, job_ids)
+
+    job_responses = []
+    for job in jobs:
+        is_favorite, is_hidden, is_seen = states_map.get(job.id, (False, False, False))
+        sources = sources_map.get(job.id, [])
+        job_responses.append(
+            JobWithDescription(
+                id=job.id,
+                company_id=job.company_id,
+                title=job.title,
+                company=job.company,
+                company_url=job.company_url,
+                location_raw=job.location_raw,
+                location_city=job.location_city,
+                location_state=job.location_state,
+                location_country=job.location_country,
+                is_remote=job.is_remote,
+                job_url=job.job_url,
+                job_type=job.job_type,
+                salary_min=job.salary_min,
+                salary_max=job.salary_max,
+                salary_interval=job.salary_interval,
+                date_posted=job.date_posted,
+                first_seen=job.first_seen,
+                company_size=job.company_size,
+                company_industry=job.company_industry,
+                sources=sources,
+                is_favorite=is_favorite,
+                is_hidden=is_hidden,
+                is_seen=is_seen,
+                description=job.description,
+            )
+        )
+
+    return JobBulkResponse(jobs=job_responses, total=len(job_responses))
 
 
 @router.get("/jobs", response_model=JobListResponse)
@@ -325,7 +398,7 @@ async def list_jobs(
     # Build response
     job_responses = []
     for job in jobs:
-        is_favorite, is_hidden = states_map.get(job.id, (False, False))
+        is_favorite, is_hidden, is_seen = states_map.get(job.id, (False, False, False))
         sources = sources_map.get(job.id, [])
 
         job_responses.append(
@@ -351,6 +424,7 @@ async def list_jobs(
                 sources=sources,
                 is_favorite=is_favorite,
                 is_hidden=is_hidden,
+                is_seen=is_seen,
             )
         )
 
@@ -406,6 +480,7 @@ async def get_job(
     # Extract user state
     is_favorite = job.user_state.is_favorite if job.user_state else False
     is_hidden = job.user_state.is_hidden if job.user_state else False
+    is_seen = job.user_state.is_seen if job.user_state else False
 
     return JobDetailResponse(
         id=job.id,
@@ -431,6 +506,7 @@ async def get_job(
         sources=sources,
         is_favorite=is_favorite,
         is_hidden=is_hidden,
+        is_seen=is_seen,
         application=application,
     )
 

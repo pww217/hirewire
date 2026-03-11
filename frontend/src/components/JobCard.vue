@@ -3,12 +3,12 @@
  * JobCard - Displays a single job listing
  */
 import { computed, withDefaults } from 'vue'
-import type { Job } from '@/types/api'
+import type { JobWithDescription } from '@/types/api'
 import { useFavoritesStore } from '@/stores/favorites'
 import BaseBadge from '@/components/common/BaseBadge.vue'
 
 interface Props {
-  job: Job
+  job: JobWithDescription
   isSelected?: boolean
   isViewed?: boolean
 }
@@ -61,24 +61,26 @@ const formattedSalary = computed(() => {
 
 const postedDate = computed(() => {
   if (!props.job.date_posted) return 'Recently'
-  
-  const posted = new Date(props.job.date_posted)
-  const now = new Date()
-  const diffDays = Math.floor((now.getTime() - posted.getTime()) / (1000 * 60 * 60 * 24))
-  
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return `${diffDays} days ago`
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
-  return posted.toLocaleDateString()
+
+  const diffDays = (Date.now() - new Date(props.job.date_posted).getTime()) / 86_400_000
+
+  if (diffDays < 1) return 'Today'
+  if (diffDays < 2) return 'Yesterday'
+  if (diffDays < 7) return `${Math.floor(diffDays)}d ago`
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`
+  return `${Math.floor(diffDays / 365)}y ago`
 })
 
-const isNew = computed(() => {
-  if (!props.job.first_seen) return false
-  const firstSeen = new Date(props.job.first_seen)
-  const now = new Date()
-  const diffHours = (now.getTime() - firstSeen.getTime()) / (1000 * 60 * 60)
-  return diffHours < 24
+const STALE_DAYS = 10
+
+const badgeState = computed((): 'new' | 'stale' | null => {
+  if (props.isViewed) return null
+  if (props.job.date_posted) {
+    const diffDays = (Date.now() - new Date(props.job.date_posted).getTime()) / 86_400_000
+    if (diffDays > STALE_DAYS) return 'stale'
+  }
+  return 'new'
 })
 
 const locationDisplay = computed(() => {
@@ -127,7 +129,7 @@ function openJobUrl(e: Event) {
         <h3 class="job-card-title" :title="job.title">
           {{ job.title }}
         </h3>
-        <BaseBadge v-if="isNew" variant="new">New</BaseBadge>
+        <BaseBadge v-if="badgeState" :variant="badgeState">{{ badgeState === 'stale' ? 'Stale' : 'New' }}</BaseBadge>
       </div>
       
       <div class="job-card-actions">

@@ -36,6 +36,7 @@
 
   /* Status colors */
   --status-new: #22c55e;
+  --status-stale: #ca8a04;
   --status-remote: #3b82f6;
   --status-favorite: #f59e0b;
 

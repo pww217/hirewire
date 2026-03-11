@@ -60,6 +60,7 @@ class JobResponse(BaseModel):
     sources: list[str] = Field(default_factory=list)
     is_favorite: bool = False
     is_hidden: bool = False
+    is_seen: bool = False
 
 
 class JobDetailResponse(JobResponse):
@@ -87,6 +88,26 @@ class JobListResponse(BaseModel):
     total_pages: int = Field(..., ge=0, description="Total number of pages")
 
 
+class JobWithDescription(JobResponse):
+    """Job response including description field for bulk/client-side filtering.
+
+    Used by GET /api/jobs/all to support loading all jobs into memory at once.
+    """
+
+    description: str | None = None
+
+
+class JobBulkResponse(BaseModel):
+    """Bulk job response for client-side filtering.
+
+    Returns all active jobs with descriptions in a single response.
+    Matches the JobBulkResponse interface in frontend/src/types/api.ts.
+    """
+
+    jobs: list[JobWithDescription]
+    total: int = Field(..., ge=0, description="Total number of jobs returned")
+
+
 class FavoriteResponse(BaseModel):
     """Response for favorite add/remove operations.
 
@@ -107,3 +128,14 @@ class HideResponse(BaseModel):
     id: int
     is_hidden: bool
     hidden_at: datetime | None = None
+
+
+class SeenResponse(BaseModel):
+    """Response for mark-as-seen operation.
+
+    Matches SeenResponse interface in frontend.
+    """
+
+    id: int
+    is_seen: bool
+    seen_at: datetime | None = None

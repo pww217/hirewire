@@ -39,13 +39,29 @@ export interface Job {
   sources: string[]
   is_favorite: boolean
   is_hidden: boolean
+  is_seen: boolean
+}
+
+/**
+ * Job with description included - matches JobWithDescription / GET /api/jobs/all
+ * Used for client-side bulk loading and filtering.
+ */
+export interface JobWithDescription extends Job {
+  description: string | null
+}
+
+/**
+ * Bulk job response - matches JobBulkResponse / GET /api/jobs/all
+ */
+export interface JobBulkResponse {
+  jobs: JobWithDescription[]
+  total: number
 }
 
 /**
  * Extended job with description - matches JobDetailResponse
  */
-export interface JobDetail extends Job {
-  description: string | null
+export interface JobDetail extends JobWithDescription {
   last_seen: string
   application: Application | null
 }
@@ -202,4 +218,14 @@ export interface StatsResponse {
   jobs_last_7d: number
   jobs_by_source: SourceStats[]
   last_job_added: string | null
+}
+
+// ============================================================================
+// User Job State Response Types
+// ============================================================================
+
+export interface SeenResponse {
+  id: number
+  is_seen: boolean
+  seen_at: string | null
 }

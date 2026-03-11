@@ -1,19 +1,16 @@
 <script setup lang="ts">
 /**
- * JobList - Container for job cards with pagination
+ * JobList - Renders all filtered jobs (no pagination — all jobs loaded client-side)
  */
-import type { Job } from '@/types/api'
+import type { JobWithDescription } from '@/types/api'
 import JobCard from './JobCard.vue'
 import JobCardSkeleton from './JobCardSkeleton.vue'
-import PaginationControls from '@/components/common/PaginationControls.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
 interface Props {
-  jobs: Job[]
+  jobs: JobWithDescription[]
   loading?: boolean
   total?: number
-  page?: number
-  totalPages?: number
   selectedJobId?: number | null
   isViewed?: (jobId: number) => boolean
   hasCompany?: boolean
@@ -23,8 +20,6 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   loading: false,
   total: 0,
-  page: 1,
-  totalPages: 1,
   selectedJobId: null,
   isViewed: () => false,
   hasCompany: false,
@@ -32,7 +27,6 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  'page-change': [page: number]
   favorite: [jobId: number]
   hide: [jobId: number]
   'job-click': [jobId: number]
@@ -44,15 +38,15 @@ const emit = defineEmits<{
     <!-- Header with count -->
     <div class="job-list-header">
       <span class="job-count">
-        {{ total.toLocaleString() }} jobs found
+        {{ total.toLocaleString() }} {{ total === 1 ? 'job' : 'jobs' }}
       </span>
     </div>
-    
+
     <!-- Loading skeletons -->
     <div v-if="loading && jobs.length === 0" class="job-list-items">
       <JobCardSkeleton v-for="i in 5" :key="i" />
     </div>
-    
+
     <!-- Job cards -->
     <div v-else-if="jobs.length > 0" class="job-list-items">
       <JobCard
@@ -66,8 +60,8 @@ const emit = defineEmits<{
         @click="emit('job-click', $event)"
       />
     </div>
-    
-    <!-- Empty state -->
+
+    <!-- Empty states -->
     <EmptyState
       v-else-if="hasFilters"
       icon="🔍"
@@ -85,14 +79,6 @@ const emit = defineEmits<{
       icon="🏢"
       title="No companies tracked"
       description="Add a company from the sidebar to get started"
-    />
-    
-    <!-- Pagination -->
-    <PaginationControls
-      v-if="totalPages > 1 && !loading"
-      :page="page"
-      :total-pages="totalPages"
-      @change="emit('page-change', $event)"
     />
   </div>
 </template>

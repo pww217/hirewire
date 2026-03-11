@@ -1,32 +1,23 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import type { UserSettings, UserSettingsResponse } from '@/types/api'
+import { ref } from 'vue'
+import type { UserSettingsResponse } from '@/types/api'
 import { useApi } from '@/composables/useApi'
 
+/**
+ * Settings store — kept for future non-filter preferences (theme, notifications, etc).
+ * Job filtering has moved to the FilterPanel and jobs store (client-side).
+ */
 export const useSettingsStore = defineStore('settings', () => {
   const api = useApi()
 
-  // State
   const settings = ref<UserSettingsResponse | null>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
   const isInitialized = ref(false)
 
-  // Getters
-  const preferredLocations = computed(() => settings.value?.preferred_locations || [])
-  const includedKeywords = computed(() => settings.value?.included_keywords || [])
-  const excludedKeywords = computed(() => settings.value?.excluded_keywords || [])
-  const defaultRemote = computed(() => settings.value?.default_remote || false)
-
-  // Actions
-
-  /**
-   * Fetch user settings from API
-   */
   async function fetchSettings() {
     isLoading.value = true
     error.value = null
-
     try {
       settings.value = await api.get<UserSettingsResponse>('/api/settings')
       isInitialized.value = true
@@ -38,10 +29,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  /**
-   * Update user settings
-   */
-  async function updateSettings(data: Partial<UserSettings>): Promise<void> {
+  async function updateSettings(data: Partial<UserSettingsResponse>): Promise<void> {
     try {
       settings.value = await api.put<UserSettingsResponse>('/api/settings', data as Record<string, unknown>)
     } catch (e) {
@@ -51,19 +39,10 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   return {
-    // State
     settings,
     isLoading,
     error,
     isInitialized,
-
-    // Getters
-    preferredLocations,
-    includedKeywords,
-    excludedKeywords,
-    defaultRemote,
-
-    // Actions
     fetchSettings,
     updateSettings,
   }

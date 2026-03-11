@@ -38,7 +38,7 @@ const searchBarRef = ref<{ focus: () => void } | null>(null)
 
 // Keyboard navigation
 const { selectedJobId } = useKeyboardNav({
-  jobs: () => jobsStore.jobs,
+  jobs: () => jobsStore.filteredJobs,
   onFavorite: handleFavorite,
   onHide: handleHide,
   onOpenJob: handleJobClick,
@@ -54,7 +54,7 @@ const { selectedJobId } = useKeyboardNav({
 })
 
 onMounted(() => {
-  jobsStore.fetchJobs()
+  jobsStore.fetchAllJobs()
   jobsStore.startAutoRefresh()
   statsStore.fetchStats()
 })
@@ -65,8 +65,8 @@ watchEffect(() => {
   document.title = count > 0 ? `(${count}) ${label} | HireWire` : `${label} | HireWire`
 })
 
-// Sync favorites from jobs when they change
-watch(() => jobsStore.jobs, (jobs) => {
+// Sync favorites from all loaded jobs when they change
+watch(() => jobsStore.allJobs, (jobs) => {
   favoritesStore.syncFromJobs(jobs)
 })
 
@@ -84,10 +84,6 @@ function handleClearFilters() {
 
 function handleSortChange(sortBy: typeof jobsStore.sortBy, sortOrder: typeof jobsStore.sortOrder) {
   jobsStore.setSort(sortBy, sortOrder)
-}
-
-function handlePageChange(page: number) {
-  jobsStore.goToPage(page)
 }
 
 async function handleFavorite(jobId: number) {
@@ -225,16 +221,13 @@ function handleJobClick(jobId: number) {
       <!-- Job List -->
       <main class="dashboard-main">
         <JobList
-          :jobs="jobsStore.jobs"
+          :jobs="jobsStore.filteredJobs"
           :loading="jobsStore.isLoading"
           :total="jobsStore.total"
-          :page="jobsStore.page"
-          :total-pages="jobsStore.totalPages"
           :selected-job-id="selectedJobId"
           :is-viewed="viewedStore.isViewed"
-          :has-company="companiesStore.selectedCompanyId !== null"
+          :has-company="companiesStore.selectedCompanyId !== null || companiesStore.companies.length > 0"
           :has-filters="jobsStore.activeFilterCount > 0"
-          @page-change="handlePageChange"
           @favorite="handleFavorite"
           @hide="handleHide"
           @job-click="handleJobClick"
