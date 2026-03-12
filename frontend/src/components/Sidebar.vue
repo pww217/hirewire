@@ -246,6 +246,9 @@ async function syncCompany(id: number, e: Event) {
         </template>
         <template v-else>
           <span class="company-name">{{ company.name }}</span>
+          <span v-if="company.glassdoor_rating" class="company-rating" :title="`Glassdoor: ${company.glassdoor_rating}/5`">
+            ★ {{ company.glassdoor_rating.toFixed(1) }}
+          </span>
         </template>
         <span v-if="(jobsStore.unseenByCompany.get(company.id) ?? 0) > 0 && editingId !== company.id" class="company-badge">
           {{ jobsStore.unseenByCompany.get(company.id) }}
@@ -524,6 +527,19 @@ async function syncCompany(id: number, e: Event) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.company-rating {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.company-item.active .company-rating {
+  color: var(--accent-primary);
+  opacity: 0.7;
 }
 
 .company-edit-input {
