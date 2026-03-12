@@ -40,6 +40,10 @@ COPY backend/ ./backend/
 # Copy scraper code (including __init__.py for module imports)
 COPY scraper/ ./scraper/
 
+# Copy Alembic migrations
+COPY alembic.ini .
+COPY alembic/ ./alembic/
+
 # Copy built frontend from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./static
 

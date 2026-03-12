@@ -1,7 +1,7 @@
 # HireWire Local Development Makefile
 # Usage: make help
 
-.PHONY: dev serve install db db-wait db-migrate db-reset backend frontend sync sync-local logs clean stop-dev venv help
+.PHONY: dev serve install db db-wait db-reset backend frontend sync sync-local logs clean stop-dev venv migration help
 
 # Default target
 .DEFAULT_GOAL := help
@@ -49,13 +49,6 @@ serve-detach:
 db:
 	$(DOCKER_COMPOSE) up -d postgres
 
-## db-migrate: Apply schema migrations to existing database
-db-migrate: db-wait
-	$(DOCKER_COMPOSE) exec postgres psql -U hirewire -d hirewire -f /dev/stdin < shared/migrations/001_company_first.sql
-	$(DOCKER_COMPOSE) exec postgres psql -U hirewire -d hirewire -f /dev/stdin < shared/migrations/002_settings_locations.sql
-	$(DOCKER_COMPOSE) exec postgres psql -U hirewire -d hirewire -f /dev/stdin < shared/migrations/003_included_keywords.sql
-	@echo "Migration complete."
-
 ## db-reset: Destroy and recreate the database (DELETES ALL DATA)
 db-reset:
 	$(DOCKER_COMPOSE) down -v
@@ -88,6 +81,10 @@ sync:
 sync-local: venv
 	DATABASE_URL=$(DB_URL) LOG_LEVEL=DEBUG LOG_FORMAT=console \
 	$(PYTHON) -m scraper.src.main
+
+## migration: Generate a new Alembic migration (usage: make migration MSG="describe change")
+migration: venv
+	DATABASE_URL=$(DB_URL) $(PYTHON) -m alembic revision --autogenerate -m "$(MSG)"
 
 # =============================================================================
 # Setup & Utilities

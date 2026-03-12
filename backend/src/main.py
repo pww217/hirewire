@@ -18,6 +18,8 @@ from pathlib import Path
 
 import schedule
 import structlog
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -97,24 +99,27 @@ async def _schedule_loop() -> None:
         await asyncio.sleep(30)
 
 
+def _run_migrations() -> None:
+    """Run alembic upgrade head synchronously. Called from lifespan before yield."""
+    project_root = Path(__file__).parent.parent.parent
+    alembic_cfg = AlembicConfig(str(project_root / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(project_root / "alembic"))
+    alembic_command.upgrade(alembic_cfg, "head")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - startup and shutdown."""
     log.info("app_starting", environment=settings.environment)
 
-    # Import engine to verify connection on startup
-    from .database import engine
-
-    # Test database connection
+    # Apply database migrations before accepting traffic
     try:
-        from sqlalchemy import text
-
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-            log.info("database_connected")
+        log.info("database_migration_starting")
+        await asyncio.get_event_loop().run_in_executor(None, _run_migrations)
+        log.info("database_migration_complete")
     except Exception as e:
-        log.error("database_connection_failed", error=str(e))
-        # Don't fail startup - health endpoint will report unhealthy
+        log.error("database_migration_failed", error=str(e))
+        raise
 
     # Start scraper scheduler
     _setup_schedule()
@@ -126,6 +131,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if _schedule_task:
         _schedule_task.cancel()
+    from .database import engine
     await engine.dispose()
     log.info("app_shutdown")
 
