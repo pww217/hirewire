@@ -40,7 +40,9 @@ export interface Job {
   is_favorite: boolean
   is_hidden: boolean
   is_seen: boolean
+  is_applied: boolean
   glassdoor_rating: number | null
+  glassdoor_url: string | null
 }
 
 /**
@@ -233,4 +235,10 @@ export interface SeenResponse {
   id: number
   is_seen: boolean
   seen_at: string | null
+}
+
+export interface ApplyResponse {
+  id: number
+  is_applied: boolean
+  applied_at: string | null
 }

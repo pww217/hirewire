@@ -62,7 +62,7 @@ async def get_settings(
     Returns:
         Current user settings
     """
-    log.info("get_settings_request")
+    log.debug("get_settings_request")
 
     settings = await get_or_create_settings(db)
 
@@ -82,7 +82,7 @@ async def update_settings(
     Returns:
         Updated user settings
     """
-    log.info("update_settings_request")
+    log.debug("update_settings_request")
 
     settings = await get_or_create_settings(db)
 

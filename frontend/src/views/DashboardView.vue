@@ -11,7 +11,7 @@
  * - /: Focus search
  * - Esc: Clear selection / close filter panel
  */
-import { onMounted, watch, watchEffect, ref } from 'vue'
+import { onMounted, watch, watchEffect, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useJobsStore } from '@/stores/jobs'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -19,6 +19,8 @@ import { useUIStore } from '@/stores/ui'
 import { useStatsStore } from '@/stores/stats'
 import { useViewedStore } from '@/stores/viewed'
 import { useCompaniesStore } from '@/stores/companies'
+import { useApplicationsStore } from '@/stores/applications'
+import { useApi } from '@/composables/useApi'
 import { useKeyboardNav } from '@/composables/useKeyboardNav'
 import SearchBar from '@/components/SearchBar.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
@@ -32,9 +34,113 @@ const uiStore = useUIStore()
 const statsStore = useStatsStore()
 const viewedStore = useViewedStore()
 const companiesStore = useCompaniesStore()
+const applicationsStore = useApplicationsStore()
+const api = useApi()
 
 const showStatsDetails = ref(false)
 const searchBarRef = ref<{ focus: () => void } | null>(null)
+
+// --- Company management state (previously in Sidebar) ---
+const isSyncingCompany = ref(false)
+const isDeletingCompany = ref(false)
+const isEditingName = ref(false)
+const editingName = ref('')
+const removedCompany = ref<typeof companiesStore.companies[0] | null>(null)
+
+const selectedCompany = computed(() => companiesStore.selectedCompany)
+
+const companyUnseenCount = computed(() =>
+  selectedCompany.value
+    ? (jobsStore.unseenByCompany.get(selectedCompany.value.id) ?? 0)
+    : 0
+)
+
+const globalUnseenCount = computed(() => jobsStore.unseenTotal)
+
+function startRename() {
+  if (!selectedCompany.value) return
+  if (isEditingName.value) {
+    cancelRename()
+    return
+  }
+  editingName.value = selectedCompany.value.name
+  isEditingName.value = true
+}
+
+async function saveRename() {
+  if (!selectedCompany.value) return
+  const trimmed = editingName.value.trim()
+  isEditingName.value = false
+  if (trimmed && trimmed !== selectedCompany.value.name) {
+    try {
+      await companiesStore.updateCompany(selectedCompany.value.id, { name: trimmed })
+    } catch {
+      uiStore.showError('Failed to rename company')
+    }
+  }
+}
+
+function cancelRename() {
+  isEditingName.value = false
+}
+
+async function syncSelectedCompany() {
+  if (!selectedCompany.value || isSyncingCompany.value) return
+  isSyncingCompany.value = true
+  try {
+    const result = await companiesStore.syncCompany(selectedCompany.value.id)
+    if (result && result.new_jobs > 0) {
+      uiStore.showSuccess(`Sync done — ${result.new_jobs} new job${result.new_jobs === 1 ? '' : 's'}`)
+    } else {
+      uiStore.showSuccess('Sync complete — no new jobs')
+    }
+  } catch {
+    uiStore.showError('Sync failed or scraper not available')
+  } finally {
+    isSyncingCompany.value = false
+  }
+}
+
+async function deleteSelectedCompany() {
+  if (!selectedCompany.value || isDeletingCompany.value) return
+  const company = selectedCompany.value
+  isDeletingCompany.value = true
+  try {
+    await companiesStore.deleteCompany(company.id)
+    jobsStore.removeJobsByCompany(company.id)
+    removedCompany.value = company
+  } catch {
+    uiStore.showError('Failed to delete company')
+  } finally {
+    isDeletingCompany.value = false
+  }
+}
+
+async function restoreCompany() {
+  if (!removedCompany.value) return
+  const cached = removedCompany.value
+  removedCompany.value = null
+  try {
+    const created = await companiesStore.createCompany({
+      name: cached.name,
+      website: cached.website,
+      ats_type: cached.ats_type,
+      ats_identifier: cached.ats_identifier,
+    })
+    companiesStore.selectCompany(created.id)
+  } catch {
+    uiStore.showError('Failed to restore company')
+  }
+}
+
+async function handleMarkAllRead(companyId?: number) {
+  try {
+    await viewedStore.markAllSeen(companyId)
+    uiStore.showSuccess('Marked all as read')
+  } catch {
+    uiStore.showError('Failed to mark as read')
+  }
+}
 
 // Keyboard navigation
 const { selectedJobId } = useKeyboardNav({
@@ -65,9 +171,21 @@ watchEffect(() => {
   document.title = count > 0 ? `(${count}) ${label} | HireWire` : `${label} | HireWire`
 })
 
-// Sync favorites from all loaded jobs when they change
+// Auto-sync when a newly-added company (never scraped) is selected
+// Also clear any cached removed company when navigating away
+watch(selectedCompany, (company, prev) => {
+  if (company?.id !== prev?.id) {
+    removedCompany.value = null
+  }
+  if (company && company.id !== prev?.id && company.last_scraped === null && !isSyncingCompany.value) {
+    syncSelectedCompany()
+  }
+})
+
+// Sync favorites and applied state from all loaded jobs when they change
 watch(() => jobsStore.allJobs, (jobs) => {
   favoritesStore.syncFromJobs(jobs)
+  applicationsStore.syncFromJobs(jobs)
 })
 
 function handleSearch(query: string) {
@@ -91,6 +209,22 @@ async function handleFavorite(jobId: number) {
     await favoritesStore.toggleFavorite(jobId)
   } catch (e) {
     uiStore.showError('Failed to update favorite')
+  }
+}
+
+async function handleApply(jobId: number) {
+  try {
+    await applicationsStore.toggleApplied(jobId)
+  } catch {
+    uiStore.showError('Failed to update applied status')
+  }
+}
+
+async function handleMarkUnread(jobId: number) {
+  try {
+    await viewedStore.markAsUnread(jobId)
+  } catch {
+    uiStore.showError('Failed to mark as unread')
   }
 }
 
@@ -122,13 +256,103 @@ function handleJobClick(jobId: number) {
   <div class="dashboard">
     <!-- Header -->
     <header class="dashboard-header">
+      <!-- Company management bar (shown when a company is selected, or just removed) -->
+      <div v-if="selectedCompany || removedCompany" class="company-bar">
+        <!-- Removed state -->
+        <template v-if="removedCompany && !selectedCompany">
+          <div class="company-bar-name">
+            <h2 class="company-bar-title company-bar-title--removed">{{ removedCompany.name }} removed</h2>
+          </div>
+          <div class="company-bar-actions">
+            <button
+              class="btn btn-ghost btn-sm btn-restore"
+              title="Restore this company"
+              @click="restoreCompany"
+            >
+              ↩ Restore
+            </button>
+          </div>
+        </template>
+
+        <!-- Normal state -->
+        <template v-else-if="selectedCompany">
+          <!-- Name / inline rename -->
+          <div class="company-bar-name">
+            <template v-if="isEditingName">
+              <input
+                v-model="editingName"
+                class="company-rename-input"
+                @keydown.enter="saveRename"
+                @keydown.escape="cancelRename"
+                @blur="saveRename"
+                autofocus
+              />
+            </template>
+            <template v-else>
+              <h2 class="company-bar-title">{{ selectedCompany.name }}</h2>
+            </template>
+
+            <!-- Glassdoor rating -->
+            <a
+              v-if="selectedCompany.glassdoor_url"
+              :href="selectedCompany.glassdoor_url"
+              class="company-bar-rating"
+              target="_blank"
+              rel="noopener"
+              title="View Glassdoor reviews"
+            >
+              ★ {{ selectedCompany.glassdoor_rating?.toFixed(1) ?? 'N/A' }}
+            </a>
+            <span
+              v-else-if="selectedCompany.glassdoor_rating"
+              class="company-bar-rating"
+            >
+              ★ {{ selectedCompany.glassdoor_rating.toFixed(1) }}
+            </span>
+          </div>
+
+          <!-- Actions -->
+          <div class="company-bar-actions">
+            <button
+              v-if="companyUnseenCount > 0"
+              class="btn btn-ghost btn-sm"
+              title="Mark all jobs as read"
+              :disabled="viewedStore.isMarkingAllSeen"
+              @click="handleMarkAllRead(selectedCompany.id)"
+            >
+              ✓ Mark all read
+            </button>
+            <button
+              class="btn btn-ghost btn-sm"
+              :class="{ active: isEditingName }"
+              title="Rename company"
+              @click="startRename"
+            >
+              ✎ Rename
+            </button>
+            <button
+              class="btn btn-ghost btn-sm sync-btn"
+              title="Sync this company"
+              :disabled="isSyncingCompany"
+              @click="syncSelectedCompany"
+            >
+              <span class="sync-icon" :class="{ spinning: isSyncingCompany }">↻</span>
+              <span>{{ isSyncingCompany ? 'Syncing...' : 'Sync' }}</span>
+            </button>
+            <button
+              class="btn btn-ghost btn-sm btn-danger"
+              title="Remove this company"
+              :disabled="isDeletingCompany"
+              @click="deleteSelectedCompany"
+            >
+              ✕ Remove
+            </button>
+          </div>
+        </template>
+      </div>
+
       <div class="header-top">
-        <h1 class="dashboard-title">
-          <span v-if="companiesStore.selectedCompany">
-            {{ companiesStore.selectedCompany.name }}
-          </span>
-          <span v-else>All Jobs</span>
-        </h1>
+        <h1 v-if="!selectedCompany" class="dashboard-title">All Jobs</h1>
         <div class="dashboard-search">
           <SearchBar 
             ref="searchBarRef"
@@ -137,6 +361,16 @@ function handleJobClick(jobId: number) {
           />
         </div>
         <div class="dashboard-controls">
+          <!-- Mark all read (global, only when on All Jobs) -->
+          <button
+            v-if="!selectedCompany && globalUnseenCount > 0"
+            class="btn btn-ghost btn-sm"
+            title="Mark all jobs as read"
+            :disabled="viewedStore.isMarkingAllSeen"
+            @click="handleMarkAllRead()"
+          >
+            ✓ Mark all read
+          </button>
           <SortControls
             :sort-by="jobsStore.sortBy"
             :sort-order="jobsStore.sortOrder"
@@ -224,12 +458,15 @@ function handleJobClick(jobId: number) {
           :jobs="jobsStore.filteredJobs"
           :loading="jobsStore.isLoading"
           :total="jobsStore.total"
+          :total-unfiltered="jobsStore.allJobs.length"
           :selected-job-id="selectedJobId"
           :is-viewed="viewedStore.isViewed"
           :has-company="companiesStore.selectedCompanyId !== null || companiesStore.companies.length > 0"
           :has-filters="jobsStore.activeFilterCount > 0"
           @favorite="handleFavorite"
           @hide="handleHide"
+          @apply="handleApply"
+          @mark-unread="handleMarkUnread"
           @job-click="handleJobClick"
         />
       </main>
@@ -265,6 +502,113 @@ function handleJobClick(jobId: number) {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+/* Company management bar */
+.company-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+
+.company-bar-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.company-bar-title {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-rename-input {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  outline: none;
+  width: 260px;
+}
+
+.company-bar-rating {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: #d4900a;
+  flex-shrink: 0;
+  text-decoration: none;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+a.company-bar-rating:hover {
+  background: rgba(212, 144, 10, 0.1);
+  text-decoration: underline;
+}
+
+.company-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.btn-danger {
+  color: var(--accent-error, #ef4444);
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--accent-error, #ef4444);
+}
+
+.btn-restore {
+  color: #22c55e;
+}
+
+.btn-restore:hover {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: #22c55e;
+}
+
+.company-bar-title--removed {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.sync-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  transition: color var(--transition-fast);
+}
+
+.sync-btn .sync-icon {
+  display: inline-block;
+  font-size: 1rem;
+}
+
+.sync-btn .sync-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .header-top {

@@ -62,6 +62,8 @@ class JobResponse(BaseModel):
     is_hidden: bool = False
     is_seen: bool = False
     glassdoor_rating: float | None = None
+    glassdoor_url: str | None = None
+    is_applied: bool = False
 
 
 class JobDetailResponse(JobResponse):
@@ -140,3 +142,11 @@ class SeenResponse(BaseModel):
     id: int
     is_seen: bool
     seen_at: datetime | None = None
+
+
+class ApplyResponse(BaseModel):
+    """Response for apply/unapply operations."""
+
+    id: int
+    is_applied: bool
+    applied_at: datetime | None = None

@@ -11,6 +11,7 @@ interface Props {
   jobs: JobWithDescription[]
   loading?: boolean
   total?: number
+  totalUnfiltered?: number
   selectedJobId?: number | null
   isViewed?: (jobId: number) => boolean
   hasCompany?: boolean
@@ -20,6 +21,7 @@ interface Props {
 withDefaults(defineProps<Props>(), {
   loading: false,
   total: 0,
+  totalUnfiltered: 0,
   selectedJobId: null,
   isViewed: () => false,
   hasCompany: false,
@@ -29,6 +31,8 @@ withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   favorite: [jobId: number]
   hide: [jobId: number]
+  apply: [jobId: number]
+  'mark-unread': [jobId: number]
   'job-click': [jobId: number]
 }>()
 </script>
@@ -38,7 +42,13 @@ const emit = defineEmits<{
     <!-- Header with count -->
     <div class="job-list-header">
       <span class="job-count">
-        {{ total.toLocaleString() }} {{ total === 1 ? 'job' : 'jobs' }}
+        <template v-if="totalUnfiltered > total && totalUnfiltered > 0">
+          {{ total.toLocaleString() }} {{ total === 1 ? 'job' : 'jobs' }} filtered
+          <span class="job-count-total">({{ totalUnfiltered.toLocaleString() }} total)</span>
+        </template>
+        <template v-else>
+          {{ total.toLocaleString() }} {{ total === 1 ? 'job' : 'jobs' }}
+        </template>
       </span>
     </div>
 
@@ -57,6 +67,8 @@ const emit = defineEmits<{
         :is-viewed="isViewed(job.id)"
         @favorite="emit('favorite', $event)"
         @hide="emit('hide', $event)"
+        @apply="emit('apply', $event)"
+        @mark-unread="emit('mark-unread', $event)"
         @click="emit('job-click', $event)"
       />
     </div>
@@ -99,6 +111,11 @@ const emit = defineEmits<{
 .job-count {
   font-size: var(--text-sm);
   color: var(--text-muted);
+}
+
+.job-count-total {
+  color: var(--text-muted);
+  opacity: 0.7;
 }
 
 .job-list-items {

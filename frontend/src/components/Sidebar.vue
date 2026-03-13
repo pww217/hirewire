@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /**
  * Sidebar - Company-first navigation
- * Shows tracked companies with job counts, plus All Jobs / Favorites entries.
+ * Shows tracked companies with job counts and glassdoor ratings.
+ * Company management actions (rename, sync, delete) live on the company page header.
  */
-import { computed, ref, nextTick, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCompaniesStore } from '@/stores/companies'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useApplicationsStore } from '@/stores/applications'
 import { useJobsStore } from '@/stores/jobs'
 import { useUIStore } from '@/stores/ui'
 import { useApi } from '@/composables/useApi'
@@ -15,43 +17,37 @@ const route = useRoute()
 const router = useRouter()
 const companiesStore = useCompaniesStore()
 const favoritesStore = useFavoritesStore()
+const applicationsStore = useApplicationsStore()
 const jobsStore = useJobsStore()
+
+const emit = defineEmits<{ 'open-add-company': [] }>()
 const uiStore = useUIStore()
 const api = useApi()
 
-const emit = defineEmits<{ 'open-add-company': [] }>()
-
-const isSyncingId = ref<number | null>(null)
-const isDeletingId = ref<number | null>(null)
-const isSyncingAll = ref(false)
-const editingId = ref<number | null>(null)
-const editingName = ref('')
-
 const companySearch = ref('')
+const isSyncingAll = ref(false)
 
-function hasUnseenJobs(companyId: number): boolean {
-  return (jobsStore.unseenByCompany.get(companyId) ?? 0) > 0
-}
-
-// --- Relative time helper ---
-function timeAgo(iso: string | null): string {
-  if (!iso) return 'Never'
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'Just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  const days = Math.floor(hrs / 24)
-  return `${days}d ago`
+async function syncAll() {
+  if (isSyncingAll.value) return
+  isSyncingAll.value = true
+  try {
+    await api.post('/api/companies/sync-all')
+    uiStore.showSuccess('Full sync triggered')
+    await companiesStore.fetchCompanies()
+    jobsStore.fetchAllJobs()
+  } catch {
+    uiStore.showError('Sync failed or scraper not available')
+  } finally {
+    isSyncingAll.value = false
+  }
 }
 
 const filteredCompanies = computed(() => {
   const q = companySearch.value.trim().toLowerCase()
-  if (!q) return companiesStore.companies
-  return companiesStore.companies.filter((c) =>
-    c.name.toLowerCase().includes(q)
-  )
+  const list = q
+    ? companiesStore.companies.filter((c) => c.name.toLowerCase().includes(q))
+    : [...companiesStore.companies]
+  return list.sort((a, b) => a.name.localeCompare(b.name))
 })
 
 function selectCompany(id: number | null) {
@@ -72,85 +68,6 @@ const isAllJobsActive = computed(
 onMounted(() => {
   companiesStore.fetchCompanies()
 })
-
-// No fetch needed on company switch — filteredJobs is a computed over allJobs
-
-// --- Inline rename ---
-function startEditing(id: number, name: string, e: Event) {
-  e.stopPropagation()
-  editingId.value = id
-  editingName.value = name
-  nextTick(() => {
-    const input = document.querySelector('.company-edit-input') as HTMLInputElement | null
-    input?.focus()
-    input?.select()
-  })
-}
-
-async function saveEdit(id: number) {
-  const trimmed = editingName.value.trim()
-  if (trimmed && trimmed !== companiesStore.companies.find(c => c.id === id)?.name) {
-    try {
-      await companiesStore.updateCompany(id, { name: trimmed })
-    } catch {
-      uiStore.showError('Failed to rename company')
-    }
-  }
-  editingId.value = null
-}
-
-function cancelEdit() {
-  editingId.value = null
-}
-
-// --- Sync ---
-async function syncAll() {
-  if (isSyncingAll.value) return
-  isSyncingAll.value = true
-  try {
-    await api.post('/api/companies/sync-all')
-    uiStore.showSuccess('Full sync triggered')
-    await companiesStore.fetchCompanies()
-    jobsStore.fetchAllJobs()
-  } catch {
-    uiStore.showError('Sync failed or scraper not available')
-  } finally {
-    isSyncingAll.value = false
-  }
-}
-
-async function deleteCompany(id: number, e: Event) {
-  e.stopPropagation()
-  if (isDeletingId.value === id) return
-  if (!confirm('Remove this company and its jobs?')) return
-  isDeletingId.value = id
-  try {
-    await companiesStore.deleteCompany(id)
-    jobsStore.fetchAllJobs()
-  } catch {
-    uiStore.showError('Failed to delete company')
-  } finally {
-    isDeletingId.value = null
-  }
-}
-
-async function syncCompany(id: number, e: Event) {
-  e.stopPropagation()
-  if (isSyncingId.value === id) return
-  isSyncingId.value = id
-  try {
-    const result = await companiesStore.syncCompany(id)
-    if (result && result.new_jobs > 0) {
-      uiStore.showSuccess(`Sync done — ${result.new_jobs} new job${result.new_jobs === 1 ? '' : 's'}`)
-    } else {
-      uiStore.showSuccess('Sync complete — no new jobs')
-    }
-  } catch {
-    uiStore.showError('Sync failed or scraper not available')
-  } finally {
-    isSyncingId.value = null
-  }
-}
 </script>
 
 <template>
@@ -196,6 +113,19 @@ async function syncCompany(id: number, e: Event) {
           {{ favoritesStore.favoriteCount }}
         </span>
       </RouterLink>
+
+      <RouterLink to="/applied" class="nav-link" :class="{ active: route.name === 'applied' }">
+        <span class="nav-icon">✅</span>
+        <span class="nav-label">Applied</span>
+        <span v-if="applicationsStore.appliedCount > 0" class="nav-badge nav-badge-green">
+          {{ applicationsStore.appliedCount }}
+        </span>
+      </RouterLink>
+
+      <RouterLink to="/hidden" class="nav-link" :class="{ active: route.name === 'hidden' }">
+        <span class="nav-icon">🙈</span>
+        <span class="nav-label">Hidden</span>
+      </RouterLink>
     </div>
 
     <!-- Companies section -->
@@ -230,54 +160,38 @@ async function syncCompany(id: number, e: Event) {
         :key="company.id"
         class="company-item"
         :class="{ active: isCompanyActive(company.id), disabled: !company.enabled }"
-        :title="`Last synced: ${timeAgo(company.last_scraped)}`"
+        :title="company.name"
         @click="selectCompany(company.id)"
       >
-        <span v-if="hasUnseenJobs(company.id)" class="new-dot" aria-label="Unseen jobs"></span>
-        <template v-if="editingId === company.id">
-          <input
-            v-model="editingName"
-            class="company-edit-input"
-            @click.stop
-            @keydown.enter="saveEdit(company.id)"
-            @keydown.escape="cancelEdit"
-            @blur="saveEdit(company.id)"
-          />
-        </template>
-        <template v-else>
-          <span class="company-name">{{ company.name }}</span>
-          <span v-if="company.glassdoor_rating" class="company-rating" :title="`Glassdoor: ${company.glassdoor_rating}/5`">
-            ★ {{ company.glassdoor_rating.toFixed(1) }}
-          </span>
-        </template>
-        <span v-if="(jobsStore.unseenByCompany.get(company.id) ?? 0) > 0 && editingId !== company.id" class="company-badge">
+        <span class="company-name">{{ company.name }}</span>
+
+        <!-- Glassdoor rating -->
+        <a
+          v-if="company.glassdoor_url"
+          :href="company.glassdoor_url"
+          class="company-rating has-rating"
+          :title="`Glassdoor: ${company.glassdoor_rating?.toFixed(1) ?? 'N/A'}/5 — click to view reviews`"
+          target="_blank"
+          rel="noopener"
+          @click.stop
+        >
+          ★ {{ company.glassdoor_rating?.toFixed(1) ?? 'N/A' }}
+        </a>
+        <span
+          v-else-if="company.glassdoor_rating"
+          class="company-rating has-rating"
+          :title="`Glassdoor: ${company.glassdoor_rating.toFixed(1)}/5`"
+        >
+          ★ {{ company.glassdoor_rating.toFixed(1) }}
+        </span>
+
+        <!-- Unread badge (always highlighted when > 0) -->
+        <span
+          v-if="(jobsStore.unseenByCompany.get(company.id) ?? 0) > 0"
+          class="company-badge"
+        >
           {{ jobsStore.unseenByCompany.get(company.id) }}
         </span>
-        <button
-          v-if="editingId !== company.id"
-          class="company-edit-btn"
-          :title="`Rename ${company.name}`"
-          @click="startEditing(company.id, company.name, $event)"
-        >
-          ✎
-        </button>
-        <button
-          v-if="editingId !== company.id"
-          class="company-sync-btn"
-          :class="{ spinning: isSyncingId === company.id }"
-          :title="`Sync ${company.name}`"
-          @click="syncCompany(company.id, $event)"
-        >
-          ↻
-        </button>
-        <button
-          v-if="editingId !== company.id"
-          class="company-delete-btn"
-          :title="`Remove ${company.name}`"
-          @click="deleteCompany(company.id, $event)"
-        >
-          ✕
-        </button>
       </button>
     </div>
 
@@ -421,6 +335,10 @@ async function syncCompany(id: number, e: Event) {
   text-align: center;
 }
 
+.nav-badge-green {
+  background: #22c55e;
+}
+
 /* Companies section header */
 .section-header {
   display: flex;
@@ -466,13 +384,14 @@ async function syncCompany(id: number, e: Event) {
   color: white;
 }
 
-/* Company list */
+/* Company list - scrollable */
 .company-list {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-1) var(--space-2) var(--space-2);
   scrollbar-width: thin;
   scrollbar-color: var(--border-color) transparent;
+  min-height: 0;
 }
 
 .company-list-empty {
@@ -498,6 +417,7 @@ async function syncCompany(id: number, e: Event) {
   text-align: left;
   transition: all var(--transition-fast);
   margin-bottom: 2px;
+  gap: var(--space-2);
 }
 
 .company-item:hover {
@@ -514,152 +434,55 @@ async function syncCompany(id: number, e: Event) {
   opacity: 0.5;
 }
 
-.new-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  flex-shrink: 0;
-}
-
 .company-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
+/* Glassdoor rating - orange when rated */
 .company-rating {
   font-size: 10px;
-  color: var(--text-muted);
   font-weight: 500;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.company-item.active .company-rating {
-  color: var(--accent-primary);
-  opacity: 0.7;
+.company-rating.has-rating {
+  color: #d4900a;
 }
 
-.company-edit-input {
-  flex: 1;
-  min-width: 0;
-  padding: 2px 4px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--accent-primary);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  outline: none;
-}
-
-.company-edit-btn {
-  display: none;
-  width: 18px;
-  height: 18px;
+a.company-rating.has-rating {
+  text-decoration: none;
   border-radius: 3px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: color var(--transition-fast);
+  padding: 1px 2px;
+  transition: background var(--transition-fast);
 }
 
-.company-item:hover .company-edit-btn {
-  display: flex;
+a.company-rating.has-rating:hover {
+  background: rgba(212, 144, 10, 0.12);
+  text-decoration: underline;
 }
 
-.company-edit-btn:hover {
-  color: var(--accent-primary);
+.company-item.active .company-rating.has-rating {
+  color: #e8a020;
 }
 
+/* Unread badge - always highlighted when count > 0 */
 .company-badge {
   padding: 1px 6px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--text-muted);
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  color: white;
   font-size: var(--text-xs);
   font-weight: 600;
   border-radius: 9px;
   min-width: 18px;
   text-align: center;
   flex-shrink: 0;
-}
-
-.company-item.active .company-badge {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
-  color: white;
-}
-
-.company-sync-btn {
-  display: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: color var(--transition-fast);
-}
-
-.company-item:hover .company-sync-btn {
-  display: flex;
-}
-
-.company-sync-btn:hover {
-  color: var(--accent-primary);
-}
-
-.company-delete-btn {
-  display: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: color var(--transition-fast);
-}
-
-.company-item:hover .company-delete-btn {
-  display: flex;
-}
-
-.company-delete-btn:hover {
-  color: #e05252;
-}
-
-.company-sync-btn.spinning {
-  display: flex;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 
 /* Footer */
@@ -713,5 +536,10 @@ async function syncCompany(id: number, e: Event) {
 .sync-all-btn.spinning .sync-icon {
   display: inline-block;
   animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

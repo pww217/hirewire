@@ -46,7 +46,9 @@ def build_job_query(
     source: str | None = None,
     posted_after: datetime | None = None,
     include_hidden: bool = False,
+    hidden_only: bool = False,
     favorites_only: bool = False,
+    applied_only: bool = False,
     preferred_locations: list[str] | None = None,
     included_keywords: list[str] | None = None,
     excluded_keywords: list[str] | None = None,
@@ -148,9 +150,18 @@ def build_job_query(
             )
         )
 
+    # Hidden only — show ONLY hidden jobs (for the Hidden view)
+    if hidden_only:
+        query = query.where(UserJobState.is_hidden == True)  # noqa: E712
+
     # Favorites only filter
     if favorites_only:
         query = query.where(UserJobState.is_favorite == True)  # noqa: E712
+
+    # Applied only — show only jobs with an application record
+    if applied_only:
+        applied_subquery = select(Application.job_id)
+        query = query.where(Job.id.in_(applied_subquery))
 
     # Included keywords filter — title must match at least one (OR)
     if included_keywords:
@@ -221,13 +232,13 @@ async def get_job_sources(db: AsyncSession, job_ids: list[int]) -> dict[int, lis
     return sources_map
 
 
-async def get_glassdoor_ratings(
+async def get_glassdoor_info(
     db: AsyncSession, company_ids: list[int]
-) -> dict[int, float]:
-    """Get Glassdoor ratings for a set of company IDs.
+) -> dict[int, tuple[float | None, str | None]]:
+    """Get Glassdoor rating and URL for a set of company IDs.
 
     Returns:
-        Dict mapping company_id to glassdoor_rating (only non-null entries)
+        Dict mapping company_id to (glassdoor_rating, glassdoor_url)
     """
     if not company_ids:
         return {}
@@ -237,11 +248,30 @@ async def get_glassdoor_ratings(
         return {}
 
     result = await db.execute(
-        select(TrackedCompany.id, TrackedCompany.glassdoor_rating)
+        select(TrackedCompany.id, TrackedCompany.glassdoor_rating, TrackedCompany.glassdoor_url)
         .where(TrackedCompany.id.in_(unique_ids))
-        .where(TrackedCompany.glassdoor_rating.isnot(None))
     )
-    return {row[0]: float(row[1]) for row in result}
+    return {row[0]: (float(row[1]) if row[1] is not None else None, row[2]) for row in result}
+
+
+# Keep backward-compat alias
+async def get_glassdoor_ratings(
+    db: AsyncSession, company_ids: list[int]
+) -> dict[int, float]:
+    info = await get_glassdoor_info(db, company_ids)
+    return {cid: rating for cid, (rating, _url) in info.items() if rating is not None}
+
+
+async def get_application_ids(
+    db: AsyncSession, job_ids: list[int]
+) -> set[int]:
+    """Return set of job IDs that have an application record."""
+    if not job_ids:
+        return set()
+    result = await db.execute(
+        select(Application.job_id).where(Application.job_id.in_(job_ids))
+    )
+    return {row[0] for row in result}
 
 
 async def get_user_states(
@@ -280,7 +310,7 @@ async def list_all_jobs(
     No pagination or filtering — the full dataset is returned in one response.
     The frontend loads this once on mount and filters/searches entirely in memory.
     """
-    log.info("list_all_jobs_request")
+    log.debug("list_all_jobs_request")
 
     query = (
         select(Job)
@@ -301,12 +331,14 @@ async def list_all_jobs(
     job_ids = [job.id for job in jobs]
     sources_map = await get_job_sources(db, job_ids)
     states_map = await get_user_states(db, job_ids)
-    ratings_map = await get_glassdoor_ratings(db, [j.company_id for j in jobs])
+    gd_map = await get_glassdoor_info(db, [j.company_id for j in jobs])
+    applied_ids = await get_application_ids(db, job_ids)
 
     job_responses = []
     for job in jobs:
         is_favorite, is_hidden, is_seen = states_map.get(job.id, (False, False, False))
         sources = sources_map.get(job.id, [])
+        gd_rating, gd_url = gd_map.get(job.company_id, (None, None))
         job_responses.append(
             JobWithDescription(
                 id=job.id,
@@ -333,7 +365,9 @@ async def list_all_jobs(
                 is_hidden=is_hidden,
                 is_seen=is_seen,
                 description=job.description,
-                glassdoor_rating=ratings_map.get(job.company_id),
+                glassdoor_rating=gd_rating,
+                glassdoor_url=gd_url,
+                is_applied=job.id in applied_ids,
             )
         )
 
@@ -358,7 +392,9 @@ async def list_jobs(
     sort_by: SortField = Query("date_posted", description="Sort field"),
     sort_order: SortOrder = Query("desc", description="Sort order"),
     include_hidden: bool = Query(False, description="Include hidden jobs"),
+    hidden_only: bool = Query(False, description="Only show hidden jobs"),
     favorites_only: bool = Query(False, description="Only show favorites"),
+    applied_only: bool = Query(False, description="Only show jobs with an application"),
     preferred_locations: list[str] | None = Query(
         None, description="Preferred locations from settings (OR filter)"
     ),
@@ -374,7 +410,7 @@ async def list_jobs(
     Supports full-text search, location filtering, company size filtering,
     exclusion filters, and various sorting options.
     """
-    log.info(
+    log.debug(
         "list_jobs_request",
         page=page,
         per_page=per_page,
@@ -393,8 +429,10 @@ async def list_jobs(
         job_type=job_type,
         source=source,
         posted_after=posted_after,
-        include_hidden=include_hidden,
+        include_hidden=include_hidden or hidden_only,
+        hidden_only=hidden_only,
         favorites_only=favorites_only,
+        applied_only=applied_only,
         preferred_locations=preferred_locations,
         included_keywords=included_keywords,
         excluded_keywords=excluded_keywords,
@@ -416,17 +454,19 @@ async def list_jobs(
     result = await db.execute(query)
     jobs = list(result.scalars().all())
 
-    # Get sources, user states, and Glassdoor ratings for all jobs
+    # Get sources, user states, Glassdoor info, and application IDs for all jobs
     job_ids = [job.id for job in jobs]
     sources_map = await get_job_sources(db, job_ids)
     states_map = await get_user_states(db, job_ids)
-    ratings_map = await get_glassdoor_ratings(db, [j.company_id for j in jobs])
+    gd_map = await get_glassdoor_info(db, [j.company_id for j in jobs])
+    applied_ids = await get_application_ids(db, job_ids)
 
     # Build response
     job_responses = []
     for job in jobs:
         is_favorite, is_hidden, is_seen = states_map.get(job.id, (False, False, False))
         sources = sources_map.get(job.id, [])
+        gd_rating, gd_url = gd_map.get(job.company_id, (None, None))
 
         job_responses.append(
             JobResponse(
@@ -452,7 +492,9 @@ async def list_jobs(
                 is_favorite=is_favorite,
                 is_hidden=is_hidden,
                 is_seen=is_seen,
-                glassdoor_rating=ratings_map.get(job.company_id),
+                glassdoor_rating=gd_rating,
+                glassdoor_url=gd_url,
+                is_applied=job.id in applied_ids,
             )
         )
 
@@ -483,7 +525,7 @@ async def get_job(
     Raises:
         HTTPException: 404 if job not found
     """
-    log.info("get_job_request", job_id=job_id)
+    log.debug("get_job_request", job_id=job_id)
 
     # Query job with user state and application
     result = await db.execute(
@@ -510,11 +552,12 @@ async def get_job(
     is_hidden = job.user_state.is_hidden if job.user_state else False
     is_seen = job.user_state.is_seen if job.user_state else False
 
-    # Glassdoor rating
+    # Glassdoor info
     gd_rating = None
+    gd_url = None
     if job.company_id:
-        ratings_map = await get_glassdoor_ratings(db, [job.company_id])
-        gd_rating = ratings_map.get(job.company_id)
+        gd_info = await get_glassdoor_info(db, [job.company_id])
+        gd_rating, gd_url = gd_info.get(job.company_id, (None, None))
 
     return JobDetailResponse(
         id=job.id,
@@ -543,6 +586,8 @@ async def get_job(
         is_seen=is_seen,
         application=application,
         glassdoor_rating=gd_rating,
+        glassdoor_url=gd_url,
+        is_applied=application is not None,
     )
 
 

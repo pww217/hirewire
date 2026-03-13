@@ -48,9 +48,7 @@ logging.basicConfig(
 )
 # Silence noisy libraries at WARNING unless debug mode
 for _noisy in ("sqlalchemy.engine", "alembic", "uvicorn.access"):
-    logging.getLogger(_noisy).setLevel(
-        logging.DEBUG if settings.log_level == "DEBUG" else logging.WARNING
-    )
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 # Configure structured logging
 structlog.configure(
@@ -90,14 +88,19 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         duration_ms = round((time.perf_counter() - start) * 1000, 1)
 
-        # Skip health check to avoid log spam
-        if request.url.path == "/health" and request.method == "GET":
+        path = request.url.path
+        # Skip health check and static assets to avoid log spam
+        if (
+            (path == "/health" and request.method == "GET")
+            or path.startswith("/assets/")
+            or path in ("/favicon.svg", "/favicon.ico")
+        ):
             return response
 
         status = response.status_code
         kwargs = dict(
             method=request.method,
-            path=request.url.path,
+            path=path,
             status_code=status,
             duration_ms=duration_ms,
         )
