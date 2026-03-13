@@ -2,7 +2,7 @@
 /**
  * JobCard - Displays a single job listing
  */
-import { computed, withDefaults } from 'vue'
+import { computed } from 'vue'
 import type { JobWithDescription } from '@/types/api'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useApplicationsStore } from '@/stores/applications'
