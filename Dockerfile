@@ -7,7 +7,7 @@
 # =============================================================================
 # Stage 1: Build frontend
 # =============================================================================
-FROM node:20-slim AS frontend-builder
+FROM node:20-slim@sha256:a82f40540f5959e0003fb7b3c0f80490def2927be8bdbee7e3e0ac65cce3be92 AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -22,7 +22,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2: Python with API + Scraper + Frontend static files
 # =============================================================================
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:ccc7089399c8bb65dd1fb3ed6d55efa538a3f5e7fca3f5988ac3b5b87e593bf0
 
 WORKDIR /app
 
