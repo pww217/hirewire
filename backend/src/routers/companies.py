@@ -164,6 +164,11 @@ async def sync_all_companies() -> SyncResponse:
     from scraper.src.main import main as scraper_main
     log.info("on_demand_sync_all")
     result = await scraper_main()
+    if not result.success:
+        error_detail = result.error or "Sync failed — check scraper logs for details"
+        log.error("on_demand_sync_all_failed", error=error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
+    log.info("on_demand_sync_all_complete", new_jobs=result.new_jobs, updated_jobs=result.updated_jobs)
     return SyncResponse(
         success=result.success,
         new_jobs=result.new_jobs,
@@ -185,10 +190,15 @@ async def sync_company(
         raise HTTPException(status_code=404, detail="Company not found")
 
     from scraper.src.main import main as scraper_main
-    log.info("on_demand_sync_company", company_id=company_id)
+    log.info("on_demand_sync_company", company_id=company_id, company_name=company.name)
     result = await scraper_main(company_id=company_id)
-    if not result.success and result.error and "not found" in (result.error or "").lower():
-        raise HTTPException(status_code=404, detail=result.error)
+    if not result.success:
+        error_detail = result.error or f"Sync failed for '{company.name}' — check scraper logs"
+        if "not found" in error_detail.lower():
+            raise HTTPException(status_code=404, detail=error_detail)
+        log.error("on_demand_sync_company_failed", company_id=company_id, error=error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
+    log.info("on_demand_sync_company_complete", company_id=company_id, new_jobs=result.new_jobs)
     return SyncResponse(
         success=result.success,
         new_jobs=result.new_jobs,

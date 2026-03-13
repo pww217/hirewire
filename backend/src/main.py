@@ -13,17 +13,22 @@ Run with:
 """
 
 import asyncio
+import logging
+import os
+import subprocess
+import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import asyncpg
 import schedule
 import structlog
-from alembic import command as alembic_command
-from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
 from .routers import (
@@ -34,6 +39,18 @@ from .routers import (
     settings_router,
     stats_router,
 )
+
+# Wire up stdlib logging so structlog's filter_by_level actually takes effect
+logging.basicConfig(
+    format="%(message)s",
+    stream=sys.stdout,
+    level=settings.log_level,
+)
+# Silence noisy libraries at WARNING unless debug mode
+for _noisy in ("sqlalchemy.engine", "alembic", "uvicorn.access"):
+    logging.getLogger(_noisy).setLevel(
+        logging.DEBUG if settings.log_level == "DEBUG" else logging.WARNING
+    )
 
 # Configure structured logging
 structlog.configure(
@@ -59,6 +76,39 @@ structlog.configure(
 )
 
 log = structlog.get_logger()
+
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Log every HTTP request with method, path, status, and duration.
+
+    Skips GET /health to avoid health-check spam in logs.
+    Uses warning level for 4xx, error for 5xx.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+
+        # Skip health check to avoid log spam
+        if request.url.path == "/health" and request.method == "GET":
+            return response
+
+        status = response.status_code
+        kwargs = dict(
+            method=request.method,
+            path=request.url.path,
+            status_code=status,
+            duration_ms=duration_ms,
+        )
+        if status >= 500:
+            log.error("http_request", **kwargs)
+        elif status >= 400:
+            log.warning("http_request", **kwargs)
+        else:
+            log.info("http_request", **kwargs)
+
+        return response
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scraper scheduler
@@ -99,12 +149,39 @@ async def _schedule_loop() -> None:
         await asyncio.sleep(30)
 
 
+async def _get_db_revision() -> str | None:
+    """Get the current alembic revision from the DB using asyncpg.
+
+    Called from the async lifespan context (not from a thread), so no asyncio.run() needed.
+    """
+    dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    try:
+        conn = await asyncpg.connect(dsn)
+        try:
+            rows = await conn.fetch("SELECT version_num FROM alembic_version LIMIT 1")
+            return rows[0]["version_num"] if rows else None
+        finally:
+            await conn.close()
+    except Exception:
+        return None
+
+
 def _run_migrations() -> None:
-    """Run alembic upgrade head synchronously. Called from lifespan before yield."""
+    """Run alembic upgrade head via subprocess.
+
+    Using a subprocess avoids asyncio/uvloop conflicts that arise when Alembic's
+    own asyncio.run() is called from within a thread executor in a uvloop context.
+    """
     project_root = Path(__file__).parent.parent.parent
-    alembic_cfg = AlembicConfig(str(project_root / "alembic.ini"))
-    alembic_cfg.set_main_option("script_location", str(project_root / "alembic"))
-    alembic_command.upgrade(alembic_cfg, "head")
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(project_root)},
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr or result.stdout or "alembic upgrade failed")
 
 
 @asynccontextmanager
@@ -115,10 +192,13 @@ async def lifespan(app: FastAPI):
     # Apply database migrations before accepting traffic
     try:
         log.info("database_migration_starting")
+        # Run Alembic upgrade in a thread (it uses its own event loop internally)
         await asyncio.get_event_loop().run_in_executor(None, _run_migrations)
-        log.info("database_migration_complete")
+        # Capture current revision after upgrade to log status
+        to_rev = await _get_db_revision()
+        log.info("database_migration_complete", revision=to_rev)
     except Exception as e:
-        log.error("database_migration_failed", error=str(e))
+        log.error("database_migration_failed", error=str(e), exc_info=True)
         raise
 
     # Start scraper scheduler
@@ -151,6 +231,9 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.environment != "production" else None,
     )
 
+    # Access logging middleware (registered first = outermost = runs last on response)
+    app.add_middleware(AccessLogMiddleware)
+
     # CORS middleware - allow frontend dev server
     app.add_middleware(
         CORSMiddleware,
@@ -177,14 +260,21 @@ def create_app() -> FastAPI:
             exc_info=True,
         )
 
-        # Return generic error in production
-        if settings.environment == "production":
-            return JSONResponse(
-                status_code=500, content={"detail": "An unexpected error occurred"}
-            )
+        if settings.environment != "production":
+            return JSONResponse(status_code=500, content={"detail": str(exc)})
 
-        # Return detailed error in development
-        return JSONResponse(status_code=500, content={"detail": str(exc)})
+        # In production, map known exception types to actionable messages
+        import sqlalchemy.exc
+        if isinstance(exc, sqlalchemy.exc.OperationalError):
+            detail = "Database connection error — please try again shortly"
+        elif isinstance(exc, TimeoutError):
+            detail = "The request timed out — please try again"
+        elif isinstance(exc, PermissionError):
+            detail = "Permission denied"
+        else:
+            detail = "An unexpected error occurred"
+
+        return JSONResponse(status_code=500, content={"detail": detail})
 
     # Include API routers
     app.include_router(health_router)
