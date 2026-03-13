@@ -73,14 +73,24 @@ export function useApi() {
       
       return await response.json() as T
     } catch (error) {
+      // Translate network-level errors into something actionable
+      let message: string
+      if (error instanceof TypeError && error.message.toLowerCase().includes('fetch')) {
+        message = 'Unable to reach the server — check your connection'
+      } else {
+        message = error instanceof Error ? error.message : 'An error occurred'
+      }
+
       if (showErrorToast) {
         // We'll import ui store dynamically to avoid circular dependencies
         const { useUIStore } = await import('@/stores/ui')
         const uiStore = useUIStore()
-        const message = error instanceof Error ? error.message : 'An error occurred'
         uiStore.showError(message)
       }
-      throw error
+      // Re-throw with the improved message so callers see it too
+      throw error instanceof TypeError && error.message.toLowerCase().includes('fetch')
+        ? new Error(message)
+        : error
     }
   }
   

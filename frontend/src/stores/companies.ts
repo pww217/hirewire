@@ -77,13 +77,13 @@ export const useCompaniesStore = defineStore('companies', () => {
   async function syncCompany(id: number): Promise<SyncResponse | null> {
     let result: SyncResponse | null = null
     try {
-      result = await api.post<SyncResponse>(`/api/companies/${id}/sync`, undefined, { showErrorToast: false })
-    } catch {
-      // Best-effort — scraper may not be reachable
+      result = await api.post<SyncResponse>(`/api/companies/${id}/sync`)
+    } finally {
+      // Always refresh data even if sync errored, so UI stays consistent
+      await fetchCompanies()
+      const { useJobsStore } = await import('./jobs')
+      useJobsStore().fetchAllJobs()
     }
-    await fetchCompanies()
-    const { useJobsStore } = await import('./jobs')
-    useJobsStore().fetchAllJobs()
     return result
   }
 
