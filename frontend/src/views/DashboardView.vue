@@ -20,7 +20,6 @@ import { useStatsStore } from '@/stores/stats'
 import { useViewedStore } from '@/stores/viewed'
 import { useCompaniesStore } from '@/stores/companies'
 import { useApplicationsStore } from '@/stores/applications'
-import { useApi } from '@/composables/useApi'
 import { useKeyboardNav } from '@/composables/useKeyboardNav'
 import SearchBar from '@/components/SearchBar.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
@@ -35,7 +34,6 @@ const statsStore = useStatsStore()
 const viewedStore = useViewedStore()
 const companiesStore = useCompaniesStore()
 const applicationsStore = useApplicationsStore()
-const api = useApi()
 
 const showStatsDetails = ref(false)
 const searchBarRef = ref<{ focus: () => void } | null>(null)
