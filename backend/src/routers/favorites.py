@@ -1,22 +1,24 @@
-"""Favorite and hide endpoints for jobs.
+"""Favorite, hide, and seen endpoints for jobs.
 
 Implements:
 - POST /api/jobs/{id}/favorite - Add job to favorites
 - DELETE /api/jobs/{id}/favorite - Remove job from favorites
 - POST /api/jobs/{id}/hide - Hide job from results
 - DELETE /api/jobs/{id}/hide - Unhide job
+- POST /api/jobs/{id}/seen - Mark a single job as seen
+- POST /api/jobs/seen/all - Bulk mark all (or company-scoped) jobs as seen
 """
 
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models.job import Job, UserJobState
-from ..schemas.job import FavoriteResponse, HideResponse, SeenResponse
+from ..models.job import Application, Job, UserJobState
+from ..schemas.job import ApplyResponse, FavoriteResponse, HideResponse, SeenResponse
 
 router = APIRouter(tags=["favorites"])
 log = structlog.get_logger()
@@ -84,7 +86,7 @@ async def add_favorite(
     Raises:
         HTTPException: 404 if job not found
     """
-    log.info("add_favorite_request", job_id=job_id)
+    log.debug("add_favorite_request", job_id=job_id)
 
     # Verify job exists
     await get_job_or_404(db, job_id)
@@ -98,7 +100,7 @@ async def add_favorite(
 
     await db.flush()
 
-    log.info("add_favorite_success", job_id=job_id)
+    log.debug("add_favorite_success", job_id=job_id)
 
     return FavoriteResponse(
         id=job_id,
@@ -123,7 +125,7 @@ async def remove_favorite(
     Raises:
         HTTPException: 404 if job not found
     """
-    log.info("remove_favorite_request", job_id=job_id)
+    log.debug("remove_favorite_request", job_id=job_id)
 
     # Verify job exists
     await get_job_or_404(db, job_id)
@@ -139,7 +141,7 @@ async def remove_favorite(
         state.favorited_at = None
         await db.flush()
 
-    log.info("remove_favorite_success", job_id=job_id)
+    log.debug("remove_favorite_success", job_id=job_id)
 
     return FavoriteResponse(
         id=job_id,
@@ -164,7 +166,7 @@ async def hide_job(
     Raises:
         HTTPException: 404 if job not found
     """
-    log.info("hide_job_request", job_id=job_id)
+    log.debug("hide_job_request", job_id=job_id)
 
     # Verify job exists
     await get_job_or_404(db, job_id)
@@ -178,7 +180,7 @@ async def hide_job(
 
     await db.flush()
 
-    log.info("hide_job_success", job_id=job_id)
+    log.debug("hide_job_success", job_id=job_id)
 
     return HideResponse(
         id=job_id,
@@ -203,7 +205,7 @@ async def unhide_job(
     Raises:
         HTTPException: 404 if job not found
     """
-    log.info("unhide_job_request", job_id=job_id)
+    log.debug("unhide_job_request", job_id=job_id)
 
     # Verify job exists
     await get_job_or_404(db, job_id)
@@ -219,7 +221,7 @@ async def unhide_job(
         state.hidden_at = None
         await db.flush()
 
-    log.info("unhide_job_success", job_id=job_id)
+    log.debug("unhide_job_success", job_id=job_id)
 
     return HideResponse(
         id=job_id,
@@ -244,7 +246,7 @@ async def mark_seen(
     Raises:
         HTTPException: 404 if job not found
     """
-    log.info("mark_seen_request", job_id=job_id)
+    log.debug("mark_seen_request", job_id=job_id)
 
     await get_job_or_404(db, job_id)
 
@@ -255,10 +257,148 @@ async def mark_seen(
         state.seen_at = datetime.now(timezone.utc)
         await db.flush()
 
-    log.info("mark_seen_success", job_id=job_id)
+    log.debug("mark_seen_success", job_id=job_id)
 
     return SeenResponse(
         id=job_id,
         is_seen=True,
         seen_at=state.seen_at,
     )
+
+
+@router.delete("/jobs/{job_id}/seen", response_model=SeenResponse)
+async def mark_unseen(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> SeenResponse:
+    """Mark a job as unseen (unread) by the user."""
+    await get_job_or_404(db, job_id)
+    state = await get_or_create_user_state(db, job_id)
+
+    if state.is_seen:
+        state.is_seen = False
+        state.seen_at = None
+        await db.flush()
+
+    return SeenResponse(
+        id=job_id,
+        is_seen=False,
+        seen_at=None,
+    )
+
+
+@router.post("/jobs/seen/all")
+async def mark_all_seen(
+    company_id: int | None = Query(None, description="Scope to a specific company; omit for all jobs"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Bulk-mark all active non-hidden jobs as seen.
+
+    Args:
+        company_id: Optional company ID to scope the operation
+
+    Returns:
+        Count of newly marked jobs
+    """
+    log.info("mark_all_seen_request", company_id=company_id)
+
+    now = datetime.now(timezone.utc)
+
+    # Gather job IDs that are active and not hidden, scoped by company if provided
+    job_query = (
+        select(Job.id)
+        .outerjoin(UserJobState, Job.id == UserJobState.job_id)
+        .where(Job.is_active == True)  # noqa: E712
+        .where(
+            or_(
+                UserJobState.is_hidden.is_(False),
+                UserJobState.is_hidden.is_(None),
+            )
+        )
+        .where(
+            or_(
+                UserJobState.is_seen.is_(False),
+                UserJobState.is_seen.is_(None),
+            )
+        )
+    )
+    if company_id is not None:
+        job_query = job_query.where(Job.company_id == company_id)
+
+    result = await db.execute(job_query)
+    job_ids = [row[0] for row in result]
+
+    if not job_ids:
+        return {"marked_count": 0}
+
+    # Upsert user_job_state rows: set is_seen=True for all matching jobs
+    for jid in job_ids:
+        state_result = await db.execute(
+            select(UserJobState).where(UserJobState.job_id == jid)
+        )
+        state = state_result.scalar_one_or_none()
+        if state is None:
+            state = UserJobState(job_id=jid, is_favorite=False, is_hidden=False, is_seen=True, seen_at=now)
+            db.add(state)
+        elif not state.is_seen:
+            state.is_seen = True
+            state.seen_at = now
+
+    await db.flush()
+
+    log.info("mark_all_seen_success", company_id=company_id, marked_count=len(job_ids))
+    return {"marked_count": len(job_ids)}
+
+
+@router.post("/jobs/{job_id}/apply", response_model=ApplyResponse)
+async def apply_to_job(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> ApplyResponse:
+    """Mark a job as applied to.
+
+    Creates an application record with status 'applied'.
+    Idempotent — returns existing record if already applied.
+    """
+    log.info("apply_job_request", job_id=job_id)
+    await get_job_or_404(db, job_id)
+
+    result = await db.execute(
+        select(Application).where(Application.job_id == job_id)
+    )
+    application = result.scalar_one_or_none()
+
+    if application is None:
+        application = Application(
+            job_id=job_id,
+            status="applied",
+            applied_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(application)
+        await db.flush()
+
+    log.info("apply_job_success", job_id=job_id)
+    return ApplyResponse(id=job_id, is_applied=True, applied_at=application.applied_at)
+
+
+@router.delete("/jobs/{job_id}/apply", response_model=ApplyResponse)
+async def unapply_job(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> ApplyResponse:
+    """Remove an application record for a job."""
+    log.info("unapply_job_request", job_id=job_id)
+    await get_job_or_404(db, job_id)
+
+    result = await db.execute(
+        select(Application).where(Application.job_id == job_id)
+    )
+    application = result.scalar_one_or_none()
+
+    if application is not None:
+        await db.delete(application)
+        await db.flush()
+
+    log.info("unapply_job_success", job_id=job_id)
+    return ApplyResponse(id=job_id, is_applied=False, applied_at=None)

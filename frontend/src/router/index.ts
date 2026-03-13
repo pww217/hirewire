@@ -14,6 +14,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Favorites' },
   },
   {
+    path: '/applied',
+    name: 'applied',
+    component: () => import('@/views/AppliedView.vue'),
+    meta: { title: 'Applied' },
+  },
+  {
+    path: '/hidden',
+    name: 'hidden',
+    component: () => import('@/views/HiddenView.vue'),
+    meta: { title: 'Hidden' },
+  },
+  {
     path: '/jobs/:id',
     name: 'job-detail',
     component: () => import('@/views/JobDetailView.vue'),

@@ -17,6 +17,7 @@ export interface FilterState {
   includedKeywords: string[]
   excludedKeywords: string[]
   favoritesOnly: boolean
+  minGlassdoorRating: number | null
 }
 
 export const DEFAULT_FILTERS: FilterState = {
@@ -28,6 +29,7 @@ export const DEFAULT_FILTERS: FilterState = {
   includedKeywords: [],
   excludedKeywords: [],
   favoritesOnly: false,
+  minGlassdoorRating: null,
 }
 
 /** Strip HTML tags for plain-text search indexing */
@@ -123,6 +125,7 @@ export const useJobsStore = defineStore('jobs', () => {
     if (filters.value.includedKeywords.length > 0) count++
     if (filters.value.excludedKeywords.length > 0) count++
     if (filters.value.favoritesOnly) count++
+    if (filters.value.minGlassdoorRating !== null) count++
     return count
   })
 
@@ -208,7 +211,13 @@ export const useJobsStore = defineStore('jobs', () => {
       result = result.filter(j => j.is_favorite)
     }
 
-    // 11. Sort
+    // 11. Min Glassdoor rating — jobs without ratings are included, not excluded
+    if (filters.value.minGlassdoorRating !== null) {
+      const min = filters.value.minGlassdoorRating
+      result = result.filter(j => j.glassdoor_rating === null || j.glassdoor_rating >= min)
+    }
+
+    // 12. Sort
     const asc = sortOrder.value === 'asc'
     return [...result].sort((a, b) => {
       switch (sortBy.value) {
@@ -233,8 +242,8 @@ export const useJobsStore = defineStore('jobs', () => {
   const total = computed(() => filteredJobs.value.length)
   const hasJobs = computed(() => allJobs.value.length > 0)
 
-  /** Count of all (non-hidden) jobs not yet seen by the user */
-  const unseenTotal = computed(() => allJobs.value.filter(j => !j.is_seen).length)
+  /** Count of filtered jobs not yet seen by the user */
+  const unseenTotal = computed(() => filteredJobs.value.filter(j => !j.is_seen).length)
 
   /** Map of company_id -> unseen job count */
   const unseenByCompany = computed(() => {
@@ -252,6 +261,7 @@ export const useJobsStore = defineStore('jobs', () => {
   /**
    * Fetch all active jobs with descriptions from the bulk endpoint.
    * Called on mount and after any sync operation.
+   * Also auto-marks stale jobs (>10 days old) as seen in the background.
    */
   async function fetchAllJobs() {
     isLoading.value = true
@@ -260,16 +270,41 @@ export const useJobsStore = defineStore('jobs', () => {
       const response = await api.get<JobBulkResponse>('/api/jobs/all')
       allJobs.value = response.jobs
       buildSearchIndex(response.jobs)
-      // Re-run text search against new index if query is active
       if (filters.value.q.trim()) {
         runSearch(filters.value.q)
       }
+      // Fire-and-forget: mark stale unseen jobs as seen
+      markStaleAsSeen(response.jobs)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to load jobs'
       console.error('Failed to fetch jobs:', e)
     } finally {
       isLoading.value = false
     }
+  }
+
+  const STALE_DAYS = 10
+
+  /**
+   * Batch-mark stale unseen jobs (date_posted > STALE_DAYS ago) as seen.
+   * Fire-and-forget — failures are silently ignored.
+   */
+  function markStaleAsSeen(jobs: JobWithDescription[]) {
+    const cutoff = Date.now() - STALE_DAYS * 86_400_000
+    const staleUnseen = jobs.filter(
+      (j) => !j.is_seen && j.date_posted && new Date(j.date_posted).getTime() < cutoff
+    )
+    if (staleUnseen.length === 0) return
+
+    // Optimistic local update
+    for (const j of staleUnseen) {
+      updateJobInList(j.id, { is_seen: true })
+    }
+
+    // Persist in background — fire and forget
+    Promise.allSettled(
+      staleUnseen.map((j) => api.post(`/api/jobs/${j.id}/seen`))
+    ).catch(() => {/* ignore */})
   }
 
   /**
@@ -318,6 +353,10 @@ export const useJobsStore = defineStore('jobs', () => {
    */
   function updateJobInList(jobId: number, updates: Partial<JobWithDescription>) {
     allJobs.value = allJobs.value.map(j => j.id === jobId ? { ...j, ...updates } : j)
+  }
+
+  function removeJobsByCompany(companyId: number) {
+    allJobs.value = allJobs.value.filter(j => j.company_id !== companyId)
   }
 
   /**
@@ -424,6 +463,7 @@ export const useJobsStore = defineStore('jobs', () => {
     clearFilters,
     setSort,
     updateJobInList,
+    removeJobsByCompany,
     hideJob,
     unhideJob,
     runSearch,

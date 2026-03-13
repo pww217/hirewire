@@ -5,6 +5,7 @@
 import { computed, withDefaults } from 'vue'
 import type { JobWithDescription } from '@/types/api'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useApplicationsStore } from '@/stores/applications'
 import BaseBadge from '@/components/common/BaseBadge.vue'
 
 interface Props {
@@ -21,13 +22,17 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   favorite: [jobId: number]
   hide: [jobId: number]
+  apply: [jobId: number]
+  'mark-unread': [jobId: number]
   click: [jobId: number]
 }>()
 
 const favoritesStore = useFavoritesStore()
+const applicationsStore = useApplicationsStore()
 
 // Computed
 const isFavorite = computed(() => favoritesStore.isFavorite(props.job.id))
+const isApplied = computed(() => applicationsStore.isApplied(props.job.id))
 
 const formattedSalary = computed(() => {
   const { salary_min, salary_max, salary_interval } = props.job
@@ -101,6 +106,16 @@ function handleHideClick(e: Event) {
   emit('hide', props.job.id)
 }
 
+function handleApplyClick(e: Event) {
+  e.stopPropagation()
+  emit('apply', props.job.id)
+}
+
+function handleMarkUnreadClick(e: Event) {
+  e.stopPropagation()
+  emit('mark-unread', props.job.id)
+}
+
 function handleCardClick() {
   emit('click', props.job.id)
 }
@@ -143,6 +158,25 @@ function openJobUrl(e: Event) {
         >
           <span class="icon-star" aria-hidden="true">{{ isFavorite ? '★' : '☆' }}</span>
         </button>
+        <button
+          class="btn-icon btn-apply"
+          :class="{ active: isApplied }"
+          :title="isApplied ? 'Mark as not applied' : 'Mark as applied'"
+          :aria-label="isApplied ? 'Mark as not applied' : 'Mark as applied'"
+          :aria-pressed="isApplied"
+          @click="handleApplyClick"
+        >
+          <span aria-hidden="true">{{ isApplied ? '✓' : '○' }}</span>
+        </button>
+        <button
+          v-if="isViewed"
+          class="btn-icon btn-mark-unread"
+          title="Mark as unread"
+          aria-label="Mark as unread"
+          @click="handleMarkUnreadClick"
+        >
+          <span aria-hidden="true">◉</span>
+        </button>
         <button 
           class="btn-icon btn-hide"
           title="Hide this job"
@@ -157,13 +191,31 @@ function openJobUrl(e: Event) {
     <!-- Meta: Company, Location, Badges -->
     <div class="job-card-meta">
       <span class="company">{{ job.company }}</span>
-      <span v-if="job.glassdoor_rating" class="glassdoor-rating" :title="`Glassdoor: ${job.glassdoor_rating} / 5`">
+      <a
+        v-if="job.glassdoor_rating && job.glassdoor_url"
+        :href="job.glassdoor_url"
+        class="glassdoor-rating"
+        :title="`Glassdoor: ${job.glassdoor_rating} / 5 — click to view reviews`"
+        target="_blank"
+        rel="noopener"
+        @click.stop
+      >
+        <svg class="star-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 1.25l1.75 3.55 3.92.57-2.84 2.77.67 3.91L8 10.27l-3.5 1.78.67-3.91L2.33 5.37l3.92-.57z"/>
+        </svg>
+        <span class="rating-value">{{ job.glassdoor_rating.toFixed(1) }}</span>
+      </a>
+      <span
+        v-else-if="job.glassdoor_rating"
+        class="glassdoor-rating"
+        :title="`Glassdoor: ${job.glassdoor_rating} / 5`"
+      >
         <svg class="star-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <path d="M8 1.25l1.75 3.55 3.92.57-2.84 2.77.67 3.91L8 10.27l-3.5 1.78.67-3.91L2.33 5.37l3.92-.57z"/>
         </svg>
         <span class="rating-value">{{ job.glassdoor_rating.toFixed(1) }}</span>
       </span>
-      <span v-else class="glassdoor-rating no-rating" title="No Glassdoor rating found">
+      <span v-else class="glassdoor-rating no-rating" title="No Glassdoor rating">
         <svg class="star-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <path d="M8 1.25l1.75 3.55 3.92.57-2.84 2.77.67 3.91L8 10.27l-3.5 1.78.67-3.91L2.33 5.37l3.92-.57z"/>
         </svg>
@@ -183,19 +235,10 @@ function openJobUrl(e: Event) {
       {{ formattedSalary }}
     </div>
     
-    <!-- Footer: Date, Sources, Apply -->
+    <!-- Footer: Date, Apply -->
     <div class="job-card-footer">
       <div class="job-card-footer-left">
         <span class="posted-date">{{ postedDate }}</span>
-        <div class="job-sources">
-          <BaseBadge 
-            v-for="source in job.sources.slice(0, 2)" 
-            :key="source" 
-            variant="source"
-          >
-            {{ source }}
-          </BaseBadge>
-        </div>
       </div>
       
       <button 
@@ -319,6 +362,31 @@ function openJobUrl(e: Event) {
   background: rgba(245, 158, 11, 0.1);
 }
 
+.job-card-actions .btn-apply {
+  font-size: var(--text-base);
+}
+
+.job-card-actions .btn-apply.active {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.job-card-actions .btn-apply:hover:not(.active) {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.job-card-actions .btn-mark-unread {
+  font-size: var(--text-base);
+  color: var(--text-muted);
+}
+
+.job-card-actions .btn-mark-unread:hover {
+  color: var(--accent-primary);
+  background: rgba(59, 130, 246, 0.08);
+}
+
 .job-card-actions .btn-hide:hover {
   background: rgba(239, 68, 68, 0.1);
   color: var(--accent-error, #ef4444);
@@ -342,10 +410,17 @@ function openJobUrl(e: Event) {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  color: var(--text-primary);
+  color: #d4900a;
   font-size: var(--text-xs);
   font-weight: 500;
-  opacity: 0.85;
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 1px 3px;
+  transition: background var(--transition-fast);
+}
+
+a.glassdoor-rating:hover {
+  background: rgba(212, 144, 10, 0.1);
 }
 
 .glassdoor-rating .star-icon {
@@ -360,7 +435,7 @@ function openJobUrl(e: Event) {
 
 .glassdoor-rating.no-rating {
   color: var(--text-muted);
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
 .job-card-meta .separator {

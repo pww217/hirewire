@@ -97,7 +97,8 @@ function handleClear() {
               modelValue.jobType ||
               modelValue.postedAfter ||
               modelValue.includedKeywords.length ||
-              modelValue.excludedKeywords.length"
+              modelValue.excludedKeywords.length ||
+              modelValue.minGlassdoorRating !== null"
         class="btn btn-ghost btn-sm"
         @click="handleClear"
       >
@@ -190,6 +191,36 @@ function handleClear() {
         />
       </div>
       <p class="filter-hint">Hide jobs whose titles contain any keyword</p>
+    </div>
+
+    <!-- Glassdoor Rating -->
+    <div class="filter-group">
+      <label class="filter-label">
+        Min Glassdoor Rating
+        <span class="label-hint">unrated jobs included</span>
+      </label>
+      <div class="star-filter">
+        <button
+          v-for="star in [1, 2, 3, 4]"
+          :key="star"
+          class="star-btn"
+          :class="{ active: modelValue.minGlassdoorRating !== null && star <= modelValue.minGlassdoorRating }"
+          :title="`${star}+ stars`"
+          @click="updateFilter('minGlassdoorRating', modelValue.minGlassdoorRating === star ? null : star)"
+        >
+          ★
+        </button>
+        <span v-if="modelValue.minGlassdoorRating" class="star-label">
+          {{ modelValue.minGlassdoorRating }}+ stars
+        </span>
+        <button
+          v-if="modelValue.minGlassdoorRating"
+          class="star-clear"
+          @click="updateFilter('minGlassdoorRating', null)"
+        >
+          ✕
+        </button>
+      </div>
     </div>
 
   </aside>
@@ -375,5 +406,53 @@ function handleClear() {
 .input:focus {
   outline: none;
   border-color: var(--accent-primary);
+}
+
+/* Star rating filter */
+.star-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.star-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--border-color);
+  padding: 0 2px;
+  line-height: 1;
+  transition: color var(--transition-fast), transform var(--transition-fast);
+}
+
+.star-btn:hover,
+.star-btn.active {
+  color: #d4900a;
+}
+
+.star-btn:hover {
+  transform: scale(1.15);
+}
+
+.star-label {
+  font-size: var(--text-xs);
+  color: #d4900a;
+  font-weight: 500;
+  margin-left: var(--space-1);
+}
+
+.star-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: 0 var(--space-1);
+  line-height: 1;
+}
+
+.star-clear:hover {
+  color: var(--text-primary);
 }
 </style>

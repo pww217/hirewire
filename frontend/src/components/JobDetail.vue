@@ -6,6 +6,8 @@ import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useJobsStore } from '@/stores/jobs'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useApplicationsStore } from '@/stores/applications'
+import { useUIStore } from '@/stores/ui'
 import BaseBadge from '@/components/common/BaseBadge.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 
@@ -18,6 +20,8 @@ const props = defineProps<Props>()
 const router = useRouter()
 const jobsStore = useJobsStore()
 const favoritesStore = useFavoritesStore()
+const applicationsStore = useApplicationsStore()
+const uiStore = useUIStore()
 
 onMounted(() => {
   jobsStore.fetchJobDetail(props.jobId)
@@ -25,6 +29,7 @@ onMounted(() => {
 
 const job = computed(() => jobsStore.currentJob)
 const isFavorite = computed(() => job.value ? favoritesStore.isFavorite(job.value.id) : false)
+const isApplied = computed(() => job.value ? applicationsStore.isApplied(job.value.id) : false)
 
 /**
  * Process description to handle both HTML and plain text formats.
@@ -119,6 +124,15 @@ async function toggleFavorite() {
   }
 }
 
+async function toggleApplied() {
+  if (!job.value) return
+  try {
+    await applicationsStore.toggleApplied(job.value.id)
+  } catch {
+    uiStore.showError('Failed to update applied status')
+  }
+}
+
 function goBack() {
   router.back()
 }
@@ -157,6 +171,13 @@ function openJobUrl() {
           >
             {{ isFavorite ? '★ Saved' : '☆ Save' }}
           </button>
+          <button
+            class="btn"
+            :class="isApplied ? 'btn-applied' : 'btn-secondary'"
+            @click="toggleApplied"
+          >
+            {{ isApplied ? '✓ Applied' : '○ Applied?' }}
+          </button>
           <button class="btn btn-primary" @click="openJobUrl">
             Apply Now →
           </button>
@@ -186,6 +207,23 @@ function openJobUrl() {
           <span v-else>{{ job.company }}</span>
           <span v-if="job.company_industry" class="company-industry">
             • {{ job.company_industry }}
+          </span>
+          <a
+            v-if="job.glassdoor_rating && job.glassdoor_url"
+            :href="job.glassdoor_url"
+            class="detail-glassdoor-rating"
+            target="_blank"
+            rel="noopener"
+            :title="`Glassdoor: ${job.glassdoor_rating} / 5 — click to view reviews`"
+          >
+            ★ {{ job.glassdoor_rating.toFixed(1) }}
+          </a>
+          <span
+            v-else-if="job.glassdoor_rating"
+            class="detail-glassdoor-rating"
+            :title="`Glassdoor: ${job.glassdoor_rating} / 5`"
+          >
+            ★ {{ job.glassdoor_rating.toFixed(1) }}
           </span>
         </div>
         
@@ -293,6 +331,12 @@ function openJobUrl() {
   border: 1px solid var(--status-favorite);
 }
 
+.btn-applied {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid #22c55e;
+}
+
 .job-detail-title-section {
   margin-bottom: var(--space-6);
 }
@@ -326,6 +370,21 @@ function openJobUrl() {
 
 .company-industry {
   color: var(--text-muted);
+}
+
+.detail-glassdoor-rating {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: #d4900a;
+  text-decoration: none;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+a.detail-glassdoor-rating:hover {
+  background: rgba(212, 144, 10, 0.1);
+  text-decoration: underline;
 }
 
 .job-detail-meta {

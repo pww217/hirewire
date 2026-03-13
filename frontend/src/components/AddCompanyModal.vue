@@ -113,11 +113,10 @@ async function submit() {
       enabled: true,
     })
     // Select the new company so the user lands on its view
+    // DashboardView will auto-trigger sync (with spinner) when it detects a new unsynced company
     companiesStore.selectCompany(company.id)
     emit('created', company.id)
     emit('close')
-    // Trigger initial sync — updates job_count and fills the job list when done
-    companiesStore.syncCompany(company.id)
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to add company'
     uiStore.showError(msg)

@@ -30,7 +30,7 @@ services:
     environment:
       DATABASE_URL: postgresql://hirewire:localdev@postgres:5432/hirewire
       SCRAPE_SCHEDULE: "09:00,17:00"
-      LOG_LEVEL: DEBUG
+      LOG_LEVEL: INFO
       LOG_FORMAT: console
       ENVIRONMENT: development
     ports:

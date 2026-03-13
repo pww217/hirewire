@@ -28,7 +28,7 @@ async def get_stats(
     Returns:
         Dashboard statistics including job counts and sources
     """
-    log.info("get_stats_request")
+    log.debug("get_stats_request")
 
     now = datetime.now(timezone.utc)
     last_24h = now - timedelta(hours=24)

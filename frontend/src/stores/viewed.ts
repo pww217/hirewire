@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { ref } from 'vue'
 import { useApi } from '@/composables/useApi'
 import { useJobsStore } from '@/stores/jobs'
 
@@ -9,6 +10,7 @@ import { useJobsStore } from '@/stores/jobs'
  */
 export const useViewedStore = defineStore('viewed', () => {
   const api = useApi()
+  const isMarkingAllSeen = ref(false)
 
   function isViewed(jobId: number): boolean {
     const jobsStore = useJobsStore()
@@ -33,8 +35,60 @@ export const useViewedStore = defineStore('viewed', () => {
     }
   }
 
+  async function markAsUnread(jobId: number) {
+    if (!isViewed(jobId)) return
+
+    const jobsStore = useJobsStore()
+
+    // Optimistic update
+    jobsStore.updateJobInList(jobId, { is_seen: false })
+
+    try {
+      await api.delete(`/api/jobs/${jobId}/seen`)
+    } catch (e) {
+      // Roll back optimistic update on failure
+      jobsStore.updateJobInList(jobId, { is_seen: true })
+      console.warn('Failed to mark job as unread:', e)
+    }
+  }
+
+  async function markAllSeen(companyId?: number) {
+    if (isMarkingAllSeen.value) return
+    isMarkingAllSeen.value = true
+
+    const jobsStore = useJobsStore()
+
+    // Optimistic: mark matching jobs as seen locally
+    const params: Record<string, unknown> = {}
+    if (companyId !== undefined) params.company_id = companyId
+
+    const toMark = jobsStore.allJobs.filter(j =>
+      !j.is_seen && (companyId === undefined || j.company_id === companyId)
+    )
+    for (const j of toMark) {
+      jobsStore.updateJobInList(j.id, { is_seen: true })
+    }
+
+    try {
+      const query = companyId !== undefined ? `?company_id=${companyId}` : ''
+      await api.post(`/api/jobs/seen/all${query}`)
+    } catch (e) {
+      // Roll back optimistic updates
+      for (const j of toMark) {
+        jobsStore.updateJobInList(j.id, { is_seen: false })
+      }
+      console.warn('Failed to mark all as seen:', e)
+      throw e
+    } finally {
+      isMarkingAllSeen.value = false
+    }
+  }
+
   return {
     isViewed,
     markAsViewed,
+    markAsUnread,
+    markAllSeen,
+    isMarkingAllSeen,
   }
 })
