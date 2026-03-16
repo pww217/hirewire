@@ -25,7 +25,10 @@ class UserSettings(Base):
     preferred_locations: Mapped[list[str]] = mapped_column(
         ARRAY(String), default=list, server_default="{}"
     )
-    included_keywords: Mapped[list[str]] = mapped_column(
+    title_keywords: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default="{}"
+    )
+    description_keywords: Mapped[list[str]] = mapped_column(
         ARRAY(String), default=list, server_default="{}"
     )
     excluded_keywords: Mapped[list[str]] = mapped_column(
@@ -33,6 +36,9 @@ class UserSettings(Base):
     )
     default_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     default_remote: Mapped[bool] = mapped_column(Boolean, default=False)
+    posted_after: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    min_glassdoor_rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    job_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
     )

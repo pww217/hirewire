@@ -145,9 +145,13 @@ export interface JobListParams {
  */
 export interface UserSettings {
   preferred_locations: string[]
-  included_keywords: string[]
+  title_keywords: string[]
+  description_keywords: string[]
   excluded_keywords: string[]
   default_remote: boolean
+  posted_after: string | null
+  min_glassdoor_rating: number | null
+  job_type: string | null
 }
 
 export interface UserSettingsResponse extends UserSettings {
