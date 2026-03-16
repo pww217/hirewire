@@ -157,7 +157,8 @@ const { selectedJobId } = useKeyboardNav({
   },
 })
 
-onMounted(() => {
+onMounted(async () => {
+  await jobsStore.loadSettings()
   jobsStore.fetchAllJobs()
   jobsStore.startAutoRefresh()
   statsStore.fetchStats()
@@ -165,8 +166,10 @@ onMounted(() => {
 
 watchEffect(() => {
   const label = companiesStore.selectedCompany?.name ?? 'All Jobs'
-  const count = jobsStore.total
-  document.title = count > 0 ? `(${count}) ${label} | HireWire` : `${label} | HireWire`
+  const unseen = companiesStore.selectedCompany
+    ? (jobsStore.unseenByCompany.get(companiesStore.selectedCompany.id) ?? 0)
+    : jobsStore.unseenTotal
+  document.title = unseen > 0 ? `(${unseen}) ${label} | HireWire` : `${label} | HireWire`
 })
 
 // Auto-sync when a newly-added company (never scraped) is selected

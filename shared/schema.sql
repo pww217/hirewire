@@ -150,10 +150,15 @@ CREATE INDEX ix_applications_status ON applications(status);
 -- ============================================================================
 CREATE TABLE user_settings (
     id SERIAL PRIMARY KEY,
-    excluded_companies TEXT[] DEFAULT '{}',
+    preferred_locations TEXT[] DEFAULT '{}',
+    title_keywords TEXT[] DEFAULT '{}',
+    description_keywords TEXT[] DEFAULT '{}',
     excluded_keywords TEXT[] DEFAULT '{}',
     default_location VARCHAR(255),
     default_remote BOOLEAN DEFAULT FALSE,
+    posted_after VARCHAR(20),
+    min_glassdoor_rating INTEGER,
+    job_type VARCHAR(50),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

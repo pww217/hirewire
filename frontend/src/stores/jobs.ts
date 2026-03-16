@@ -10,11 +10,12 @@ export type SortOrder = 'asc' | 'desc'
 
 export interface FilterState {
   q: string
-  location: string
+  locations: string[]
   isRemote: boolean | null
   jobType: string | null
   postedAfter: string | null
-  includedKeywords: string[]
+  titleKeywords: string[]
+  descriptionKeywords: string[]
   excludedKeywords: string[]
   favoritesOnly: boolean
   minGlassdoorRating: number | null
@@ -22,11 +23,12 @@ export interface FilterState {
 
 export const DEFAULT_FILTERS: FilterState = {
   q: '',
-  location: '',
+  locations: [],
   isRemote: null,
   jobType: null,
   postedAfter: null,
-  includedKeywords: [],
+  titleKeywords: [],
+  descriptionKeywords: [],
   excludedKeywords: [],
   favoritesOnly: false,
   minGlassdoorRating: null,
@@ -118,11 +120,12 @@ export const useJobsStore = defineStore('jobs', () => {
   const activeFilterCount = computed(() => {
     let count = 0
     if (filters.value.q) count++
-    if (filters.value.location) count++
+    if (filters.value.locations.length > 0) count++
     if (filters.value.isRemote !== null) count++
     if (filters.value.jobType) count++
     if (filters.value.postedAfter) count++
-    if (filters.value.includedKeywords.length > 0) count++
+    if (filters.value.titleKeywords.length > 0) count++
+    if (filters.value.descriptionKeywords.length > 0) count++
     if (filters.value.excludedKeywords.length > 0) count++
     if (filters.value.favoritesOnly) count++
     if (filters.value.minGlassdoorRating !== null) count++
@@ -145,14 +148,16 @@ export const useJobsStore = defineStore('jobs', () => {
       result = result.filter(j => ids.has(j.id))
     }
 
-    // 3. Location substring match
-    if (filters.value.location) {
-      const loc = filters.value.location.toLowerCase()
+    // 3. Location — OR across all chips
+    if (filters.value.locations.length > 0) {
       result = result.filter(j =>
-        (j.location_city?.toLowerCase().includes(loc)) ||
-        (j.location_state?.toLowerCase().includes(loc)) ||
-        (j.location_raw?.toLowerCase().includes(loc)) ||
-        (j.location_country?.toLowerCase().includes(loc))
+        filters.value.locations.some(loc => {
+          const l = loc.toLowerCase()
+          return j.location_city?.toLowerCase().includes(l) ||
+                 j.location_state?.toLowerCase().includes(l) ||
+                 j.location_raw?.toLowerCase().includes(l) ||
+                 j.location_country?.toLowerCase().includes(l)
+        })
       )
     }
 
@@ -188,12 +193,21 @@ export const useJobsStore = defineStore('jobs', () => {
       }
     }
 
-    // 8. Included keywords (OR) — searches title and description
-    if (filters.value.includedKeywords.length > 0) {
-      const kws = filters.value.includedKeywords.map(k => k.toLowerCase())
+    // 8a. Title keywords (OR) — must match at least one in title
+    if (filters.value.titleKeywords.length > 0) {
+      const kws = filters.value.titleKeywords.map(k => k.toLowerCase())
       result = result.filter(j => {
-        const haystack = `${j.title} ${stripHtml(j.description)}`.toLowerCase()
-        return kws.some(kw => haystack.includes(kw))
+        const title = j.title.toLowerCase()
+        return kws.some(kw => title.includes(kw))
+      })
+    }
+
+    // 8b. Description keywords (OR) — must match at least one in description
+    if (filters.value.descriptionKeywords.length > 0) {
+      const kws = filters.value.descriptionKeywords.map(k => k.toLowerCase())
+      result = result.filter(j => {
+        const desc = stripHtml(j.description).toLowerCase()
+        return kws.some(kw => desc.includes(kw))
       })
     }
 
@@ -255,6 +269,56 @@ export const useJobsStore = defineStore('jobs', () => {
     }
     return map
   })
+
+  // ── Settings persistence ───────────────────────────────────────────────────
+
+  interface UserSettingsResponse {
+    preferred_locations: string[]
+    title_keywords: string[]
+    description_keywords: string[]
+    excluded_keywords: string[]
+    default_remote: boolean
+    min_glassdoor_rating: number | null
+    job_type: string | null
+  }
+
+  /** Hydrate filters from persisted user settings (called on store init). */
+  async function loadSettings() {
+    try {
+      const s = await api.get<UserSettingsResponse>('/api/settings', undefined, { showErrorToast: false })
+      filters.value = {
+        ...filters.value,
+        locations: s.preferred_locations ?? [],
+        titleKeywords: s.title_keywords ?? [],
+        descriptionKeywords: s.description_keywords ?? [],
+        excludedKeywords: s.excluded_keywords ?? [],
+        isRemote: s.default_remote ? true : null,
+        minGlassdoorRating: s.min_glassdoor_rating ?? null,
+        jobType: s.job_type ?? null,
+      }
+    } catch {
+      // Non-fatal: silently fall back to defaults
+    }
+  }
+
+  let persistTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Debounced persist of filter state to user_settings (500ms). */
+  function schedulePersist() {
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      const f = filters.value
+      api.put('/api/settings', {
+        preferred_locations: f.locations,
+        title_keywords: f.titleKeywords,
+        description_keywords: f.descriptionKeywords,
+        excluded_keywords: f.excludedKeywords,
+        default_remote: f.isRemote === true,
+        min_glassdoor_rating: f.minGlassdoorRating,
+        job_type: f.jobType,
+      } as Record<string, unknown>, { showErrorToast: false }).catch(() => {/* ignore */})
+    }, 500)
+  }
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -332,6 +396,10 @@ export const useJobsStore = defineStore('jobs', () => {
     if (newFilters.q !== undefined && newFilters.q !== prev) {
       runSearch(newFilters.q)
     }
+    // Persist everything except transient fields (q, favoritesOnly)
+    if (Object.keys(newFilters).some(k => k !== 'q' && k !== 'favoritesOnly')) {
+      schedulePersist()
+    }
   }
 
   function clearFilters() {
@@ -341,6 +409,7 @@ export const useJobsStore = defineStore('jobs', () => {
       clearTimeout(searchDebounceTimer)
       searchDebounceTimer = null
     }
+    schedulePersist()
   }
 
   function setSort(by: SortBy, order: SortOrder) {
@@ -459,6 +528,7 @@ export const useJobsStore = defineStore('jobs', () => {
     // Actions
     fetchAllJobs,
     fetchJobDetail,
+    loadSettings,
     setFilters,
     clearFilters,
     setSort,

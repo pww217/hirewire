@@ -50,7 +50,8 @@ def build_job_query(
     favorites_only: bool = False,
     applied_only: bool = False,
     preferred_locations: list[str] | None = None,
-    included_keywords: list[str] | None = None,
+    title_keywords: list[str] | None = None,
+    description_keywords: list[str] | None = None,
     excluded_keywords: list[str] | None = None,
 ) -> Select:
     """Build the job listing query with all filters.
@@ -66,6 +67,8 @@ def build_job_query(
         include_hidden: Include hidden jobs
         favorites_only: Only show favorites
         preferred_locations: Default location list from settings (OR'd together)
+        title_keywords: Keywords that must appear in title (OR within group)
+        description_keywords: Keywords that must appear in description (OR within group)
         excluded_keywords: List of keywords to exclude from titles
 
     Returns:
@@ -163,9 +166,13 @@ def build_job_query(
         applied_subquery = select(Application.job_id)
         query = query.where(Job.id.in_(applied_subquery))
 
-    # Included keywords filter — title must match at least one (OR)
-    if included_keywords:
-        query = query.where(or_(*[Job.title.ilike(f"%{kw}%") for kw in included_keywords]))
+    # Title keywords filter — title must match at least one (OR within group)
+    if title_keywords:
+        query = query.where(or_(*[Job.title.ilike(f"%{kw}%") for kw in title_keywords]))
+
+    # Description keywords filter — description must match at least one (OR within group)
+    if description_keywords:
+        query = query.where(or_(*[Job.description.ilike(f"%{kw}%") for kw in description_keywords]))
 
     # Excluded keywords filter (case-insensitive title match)
     if excluded_keywords:
@@ -398,8 +405,11 @@ async def list_jobs(
     preferred_locations: list[str] | None = Query(
         None, description="Preferred locations from settings (OR filter)"
     ),
-    included_keywords: list[str] | None = Query(
+    title_keywords: list[str] | None = Query(
         None, description="Title must contain at least one of these keywords (OR filter)"
+    ),
+    description_keywords: list[str] | None = Query(
+        None, description="Description must contain at least one of these keywords (OR filter)"
     ),
     excluded_keywords: list[str] | None = Query(
         None, description="Keywords to exclude from job titles"
@@ -434,7 +444,8 @@ async def list_jobs(
         favorites_only=favorites_only,
         applied_only=applied_only,
         preferred_locations=preferred_locations,
-        included_keywords=included_keywords,
+        title_keywords=title_keywords,
+        description_keywords=description_keywords,
         excluded_keywords=excluded_keywords,
     )
 
