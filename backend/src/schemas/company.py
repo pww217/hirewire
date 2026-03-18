@@ -116,6 +116,14 @@ class SyncResponse(BaseModel):
 # Response schemas
 # ============================================================================
 
+class CompanyImportResponse(BaseModel):
+    """Result of a CSV batch import."""
+
+    imported: int
+    skipped: int
+    errors: list[str]
+
+
 class CompanyResponse(BaseModel):
     """Tracked company response."""
 

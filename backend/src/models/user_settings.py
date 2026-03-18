@@ -34,6 +34,9 @@ class UserSettings(Base):
     excluded_keywords: Mapped[list[str]] = mapped_column(
         ARRAY(String), default=list, server_default="{}"
     )
+    excluded_body_keywords: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default="{}"
+    )
     default_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     default_remote: Mapped[bool] = mapped_column(Boolean, default=False)
     posted_after: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)

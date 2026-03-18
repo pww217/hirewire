@@ -4,6 +4,8 @@ Implements:
 - POST /api/companies/detect           - Detect ATS type + slug from a career page URL
 - GET  /api/companies                  - List all tracked companies
 - POST /api/companies                  - Add a new company to track
+- GET  /api/companies/export           - Export all companies as CSV
+- POST /api/companies/import           - Batch import companies from CSV
 - GET  /api/companies/{id}             - Get company details
 - PUT  /api/companies/{id}             - Update company
 - DELETE /api/companies/{id}           - Remove company (jobs retain history, company_id set NULL)
@@ -12,11 +14,14 @@ Implements:
 - POST /api/companies/refresh-ratings  - Re-fetch Glassdoor ratings for companies missing them
 """
 
+import csv
+import io
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
@@ -25,6 +30,7 @@ from ..schemas.company import (
     CompanyCreate,
     CompanyDetectRequest,
     CompanyDetectResponse,
+    CompanyImportResponse,
     CompanyResponse,
     CompanyUpdate,
     RefreshRatingResult,
@@ -105,6 +111,158 @@ async def create_company(
 
     log.info("company_created", id=company.id, name=company.name, ats_type=company.ats_type)
     return company
+
+
+@router.get("/export")
+async def export_companies(
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Export all tracked companies as a CSV file.
+
+    Columns: name, website, ats_type, ats_identifier, enabled, job_count, last_scraped
+    The ats_type + ats_identifier pair is the canonical dedup key on import.
+    """
+    result = await db.execute(
+        select(TrackedCompany).order_by(TrackedCompany.name.asc())
+    )
+    companies = list(result.scalars().all())
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=["name", "website", "ats_type", "ats_identifier", "enabled", "job_count", "last_scraped"],
+    )
+    writer.writeheader()
+    for c in companies:
+        writer.writerow({
+            "name": c.name,
+            "website": c.website or "",
+            "ats_type": c.ats_type or "",
+            "ats_identifier": c.ats_identifier or "",
+            "enabled": str(c.enabled).lower(),
+            "job_count": c.job_count,
+            "last_scraped": c.last_scraped.isoformat() if c.last_scraped else "",
+        })
+
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filename = f"hirewire-companies-{date_str}.csv"
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+_VALID_ATS_TYPES = {"greenhouse", "lever", "ashby"}
+
+
+@router.post("/import", response_model=CompanyImportResponse)
+async def import_companies(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> CompanyImportResponse:
+    """Batch import tracked companies from a CSV file.
+
+    Deduplicates by (ats_type, ats_identifier) -- rows matching an existing
+    company are skipped. Rows missing ats_type or ats_identifier are rejected.
+    """
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a .csv")
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")  # handle BOM from Excel
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File must be UTF-8 encoded")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames is None:
+        raise HTTPException(status_code=400, detail="CSV file is empty")
+
+    required_cols = {"name", "ats_type", "ats_identifier"}
+    missing_cols = required_cols - {f.strip().lower() for f in reader.fieldnames}
+    if missing_cols:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV missing required columns: {', '.join(sorted(missing_cols))}",
+        )
+
+    rows: list[dict] = [
+        {k.strip().lower(): v.strip() for k, v in row.items() if k}
+        for row in reader
+    ]
+
+    errors: list[str] = []
+    to_insert: list[dict] = []
+    seen_keys: set[tuple[str, str]] = set()
+
+    for i, row in enumerate(rows, start=2):  # row 1 = header
+        name = row.get("name", "").strip()
+        ats_type = row.get("ats_type", "").strip().lower()
+        ats_identifier = row.get("ats_identifier", "").strip().lower()
+
+        if not name:
+            errors.append(f"Row {i}: missing name")
+            continue
+        if not ats_type:
+            errors.append(f"Row {i} ({name}): missing ats_type")
+            continue
+        if ats_type not in _VALID_ATS_TYPES:
+            errors.append(f"Row {i} ({name}): invalid ats_type '{ats_type}' (must be greenhouse, lever, or ashby)")
+            continue
+        if not ats_identifier:
+            errors.append(f"Row {i} ({name}): missing ats_identifier")
+            continue
+
+        key = (ats_type, ats_identifier)
+        if key in seen_keys:
+            errors.append(f"Row {i} ({name}): duplicate in file, skipped")
+            continue
+        seen_keys.add(key)
+
+        enabled_raw = row.get("enabled", "true").strip().lower()
+        enabled = enabled_raw not in ("false", "0", "no")
+
+        to_insert.append({
+            "name": name,
+            "website": row.get("website") or None,
+            "ats_type": ats_type,
+            "ats_identifier": ats_identifier,
+            "enabled": enabled,
+        })
+
+    skipped = 0
+    imported = 0
+
+    if to_insert:
+        # Fetch existing (ats_type, ats_identifier) pairs in one query
+        keys = [(r["ats_type"], r["ats_identifier"]) for r in to_insert]
+        existing_result = await db.execute(
+            select(TrackedCompany.ats_type, TrackedCompany.ats_identifier).where(
+                tuple_(TrackedCompany.ats_type, TrackedCompany.ats_identifier).in_(keys)
+            )
+        )
+        existing_keys = {(row[0], row[1]) for row in existing_result.all()}
+
+        for r in to_insert:
+            key = (r["ats_type"], r["ats_identifier"])
+            if key in existing_keys:
+                skipped += 1
+                continue
+            db.add(TrackedCompany(
+                name=r["name"],
+                website=r["website"],
+                ats_type=r["ats_type"],
+                ats_identifier=r["ats_identifier"],
+                enabled=r["enabled"],
+            ))
+            imported += 1
+
+        await db.commit()
+
+    log.info("company_import", imported=imported, skipped=skipped, errors=len(errors))
+    return CompanyImportResponse(imported=imported, skipped=skipped, errors=errors)
 
 
 @router.get("/{company_id}", response_model=CompanyResponse)

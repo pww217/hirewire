@@ -1,7 +1,53 @@
 <script setup lang="ts">
 /**
- * SettingsView - App preferences (filter settings moved to FilterPanel)
+ * SettingsView - Company import/export and about.
  */
+import { ref } from 'vue'
+import { useCompaniesStore } from '@/stores/companies'
+import type { CompanyImportResponse } from '@/types/api'
+
+const companiesStore = useCompaniesStore()
+
+const isExporting = ref(false)
+const isImporting = ref(false)
+const importFile = ref<File | null>(null)
+const importResult = ref<CompanyImportResponse | null>(null)
+const importError = ref<string | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+async function handleExport() {
+  isExporting.value = true
+  try {
+    await companiesStore.exportCompanies()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    isExporting.value = false
+  }
+}
+
+function onFileSelected(e: Event) {
+  const target = e.target as HTMLInputElement
+  importFile.value = target.files?.[0] ?? null
+  importResult.value = null
+  importError.value = null
+}
+
+async function handleImport() {
+  if (!importFile.value) return
+  isImporting.value = true
+  importResult.value = null
+  importError.value = null
+  try {
+    importResult.value = await companiesStore.importCompanies(importFile.value)
+    importFile.value = null
+    if (fileInput.value) fileInput.value.value = ''
+  } catch (e) {
+    importError.value = e instanceof Error ? e.message : 'Import failed'
+  } finally {
+    isImporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -11,7 +57,59 @@
     </header>
 
     <main class="settings-content">
-      <section class="settings-section about-section">
+
+      <!-- Company Data -->
+      <section class="settings-section">
+        <h2 class="section-title">Company Data</h2>
+        <p class="section-desc">Export your tracked companies or bulk-import new ones via CSV. Import deduplicates by ATS type + slug and skips anything already tracked.</p>
+
+        <div class="action-row">
+          <div class="action-block">
+            <span class="action-label">Export</span>
+            <p class="action-hint">Download all tracked companies as a CSV file.</p>
+            <button
+              class="btn btn-secondary"
+              :disabled="isExporting"
+              @click="handleExport"
+            >
+              {{ isExporting ? 'Exporting…' : 'Export Companies' }}
+            </button>
+          </div>
+
+          <div class="action-divider" />
+
+          <div class="action-block">
+            <span class="action-label">Import</span>
+            <p class="action-hint">CSV must have columns: <code>name</code>, <code>ats_type</code>, <code>ats_identifier</code>. Optional: <code>website</code>, <code>enabled</code>.</p>
+            <div class="import-row">
+              <input
+                ref="fileInput"
+                type="file"
+                accept=".csv"
+                class="file-input"
+                @change="onFileSelected"
+              />
+              <button
+                class="btn btn-primary"
+                :disabled="!importFile || isImporting"
+                @click="handleImport"
+              >
+                {{ isImporting ? 'Importing…' : 'Import' }}
+              </button>
+            </div>
+            <div v-if="importResult" class="result-box result-success">
+              <strong>Done:</strong> {{ importResult.imported }} imported, {{ importResult.skipped }} skipped.
+              <ul v-if="importResult.errors.length" class="error-list">
+                <li v-for="(err, i) in importResult.errors" :key="i">{{ err }}</li>
+              </ul>
+            </div>
+            <div v-if="importError" class="result-box result-error">{{ importError }}</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- About -->
+      <section class="settings-section">
         <h2 class="section-title">About HireWire</h2>
         <p class="about-text">
           HireWire tracks job listings directly from company ATS boards (Greenhouse, Lever, Ashby).
@@ -19,6 +117,7 @@
         </p>
         <p class="about-version">v0.2.0</p>
       </section>
+
     </main>
   </div>
 </template>
@@ -62,6 +161,100 @@
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 var(--space-2) 0;
+}
+
+.section-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-4);
+  line-height: 1.6;
+}
+
+.action-row {
+  display: flex;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
+.action-block {
+  flex: 1;
+}
+
+.action-divider {
+  width: 1px;
+  background: var(--border-color);
+  align-self: stretch;
+  flex-shrink: 0;
+}
+
+.action-label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.action-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+  line-height: 1.5;
+}
+
+.action-hint code {
+  font-family: var(--font-mono);
+  background: var(--bg-tertiary);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.import-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.file-input {
+  flex: 1;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-2);
+  cursor: pointer;
+}
+
+.file-input::-webkit-file-upload-button {
+  display: none;
+}
+
+.result-box {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.result-success {
+  background: color-mix(in srgb, var(--accent-success) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-success) 30%, transparent);
+  color: var(--accent-success);
+}
+
+.result-error {
+  background: color-mix(in srgb, var(--accent-error) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-error) 30%, transparent);
+  color: var(--accent-error);
+}
+
+.error-list {
+  margin-top: var(--space-2);
+  padding-left: var(--space-4);
+  color: var(--accent-warning);
+  font-size: var(--text-xs);
 }
 
 .about-text {

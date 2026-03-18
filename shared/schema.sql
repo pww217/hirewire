@@ -154,6 +154,7 @@ CREATE TABLE user_settings (
     title_keywords TEXT[] DEFAULT '{}',
     description_keywords TEXT[] DEFAULT '{}',
     excluded_keywords TEXT[] DEFAULT '{}',
+    excluded_body_keywords TEXT[] DEFAULT '{}',
     default_location VARCHAR(255),
     default_remote BOOLEAN DEFAULT FALSE,
     posted_after VARCHAR(20),

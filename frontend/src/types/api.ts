@@ -148,6 +148,7 @@ export interface UserSettings {
   title_keywords: string[]
   description_keywords: string[]
   excluded_keywords: string[]
+  excluded_body_keywords: string[]
   default_remote: boolean
   posted_after: string | null
   min_glassdoor_rating: number | null
@@ -212,6 +213,12 @@ export interface SyncResponse {
   duration_ms: number
   error: string | null
   started_at: string
+}
+
+export interface CompanyImportResponse {
+  imported: number
+  skipped: number
+  errors: string[]
 }
 
 // ============================================================================
