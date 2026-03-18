@@ -20,6 +20,9 @@ class UserSettingsBase(BaseModel):
     excluded_keywords: list[str] = Field(
         default_factory=list, description="Keywords in job titles to exclude"
     )
+    excluded_body_keywords: list[str] = Field(
+        default_factory=list, description="Keywords in job descriptions to exclude"
+    )
     default_location: str | None = Field(
         None, max_length=255, description="Default location filter"
     )
@@ -42,6 +45,7 @@ class UserSettingsUpdate(BaseModel):
     title_keywords: list[str] | None = None
     description_keywords: list[str] | None = None
     excluded_keywords: list[str] | None = None
+    excluded_body_keywords: list[str] | None = None
     default_location: str | None = None
     default_remote: bool | None = None
     posted_after: str | None = None

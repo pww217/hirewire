@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type {
+  CompanyImportResponse,
   TrackedCompany,
   TrackedCompanyCreate,
   TrackedCompanyUpdate,
@@ -74,6 +75,33 @@ export const useCompaniesStore = defineStore('companies', () => {
     }
   }
 
+  async function exportCompanies(): Promise<void> {
+    const response = await fetch('/api/companies/export')
+    if (!response.ok) throw new Error('Export failed')
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const disposition = response.headers.get('Content-Disposition') ?? ''
+    const match = disposition.match(/filename="?([^"]+)"?/)
+    a.download = match ? match[1] : 'hirewire-companies.csv'
+    a.href = url
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function importCompanies(file: File): Promise<CompanyImportResponse> {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch('/api/companies/import', { method: 'POST', body: formData })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Import failed' }))
+      throw new Error(err.detail ?? 'Import failed')
+    }
+    const result: CompanyImportResponse = await response.json()
+    await fetchCompanies()
+    return result
+  }
+
   async function syncCompany(id: number): Promise<SyncResponse | null> {
     let result: SyncResponse | null = null
     try {
@@ -101,5 +129,7 @@ export const useCompaniesStore = defineStore('companies', () => {
     updateCompany,
     deleteCompany,
     syncCompany,
+    exportCompanies,
+    importCompanies,
   }
 })

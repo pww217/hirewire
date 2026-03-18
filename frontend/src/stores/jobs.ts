@@ -17,6 +17,7 @@ export interface FilterState {
   titleKeywords: string[]
   descriptionKeywords: string[]
   excludedKeywords: string[]
+  excludedBodyKeywords: string[]
   favoritesOnly: boolean
   minGlassdoorRating: number | null
 }
@@ -30,6 +31,7 @@ export const DEFAULT_FILTERS: FilterState = {
   titleKeywords: [],
   descriptionKeywords: [],
   excludedKeywords: [],
+  excludedBodyKeywords: [],
   favoritesOnly: false,
   minGlassdoorRating: null,
 }
@@ -220,6 +222,15 @@ export const useJobsStore = defineStore('jobs', () => {
       })
     }
 
+    // 9b. Excluded body keywords — description only
+    if (filters.value.excludedBodyKeywords.length > 0) {
+      const exKws = filters.value.excludedBodyKeywords.map(k => k.toLowerCase())
+      result = result.filter(j => {
+        const desc = stripHtml(j.description).toLowerCase()
+        return !exKws.some(kw => desc.includes(kw))
+      })
+    }
+
     // 10. Favorites only
     if (filters.value.favoritesOnly) {
       result = result.filter(j => j.is_favorite)
@@ -277,6 +288,7 @@ export const useJobsStore = defineStore('jobs', () => {
     title_keywords: string[]
     description_keywords: string[]
     excluded_keywords: string[]
+    excluded_body_keywords: string[]
     default_remote: boolean
     min_glassdoor_rating: number | null
     job_type: string | null
@@ -292,6 +304,7 @@ export const useJobsStore = defineStore('jobs', () => {
         titleKeywords: s.title_keywords ?? [],
         descriptionKeywords: s.description_keywords ?? [],
         excludedKeywords: s.excluded_keywords ?? [],
+        excludedBodyKeywords: s.excluded_body_keywords ?? [],
         isRemote: s.default_remote ? true : null,
         minGlassdoorRating: s.min_glassdoor_rating ?? null,
         jobType: s.job_type ?? null,
@@ -313,6 +326,7 @@ export const useJobsStore = defineStore('jobs', () => {
         title_keywords: f.titleKeywords,
         description_keywords: f.descriptionKeywords,
         excluded_keywords: f.excludedKeywords,
+        excluded_body_keywords: f.excludedBodyKeywords,
         default_remote: f.isRemote === true,
         min_glassdoor_rating: f.minGlassdoorRating,
         job_type: f.jobType,

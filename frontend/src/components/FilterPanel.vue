@@ -18,8 +18,9 @@ const emit = defineEmits<{
 
 const locationInput = ref('')
 const titleInput = ref('')
+const excludedTitleInput = ref('')
 const descriptionInput = ref('')
-const excludedInput = ref('')
+const excludedBodyInput = ref('')
 
 function updateFilter<K extends keyof FilterState>(key: K, value: FilterState[K]) {
   emit('update:modelValue', { ...props.modelValue, [key]: value })
@@ -29,7 +30,18 @@ function toggleRemote(value: boolean | null) {
   updateFilter('isRemote', value)
 }
 
-// ── Location chip helpers ──────────────────────────────────────────────────
+// ── Chip helpers ────────────────────────────────────────────────────────────
+
+function addChips(input: string, current: string[]): string[] {
+  const parts = input.split(',').map(s => s.trim()).filter(Boolean)
+  const result = [...current]
+  for (const p of parts) {
+    if (!result.includes(p)) result.push(p)
+  }
+  return result
+}
+
+// ── Location ────────────────────────────────────────────────────────────────
 
 function addLocation() {
   const val = locationInput.value.trim()
@@ -51,16 +63,7 @@ function onLocationKeydown(e: KeyboardEvent) {
   }
 }
 
-// ── Keyword chip helpers ───────────────────────────────────────────────────
-
-function addChips(input: string, current: string[]): string[] {
-  const parts = input.split(',').map(s => s.trim()).filter(Boolean)
-  const result = [...current]
-  for (const p of parts) {
-    if (!result.includes(p)) result.push(p)
-  }
-  return result
-}
+// ── Title include ────────────────────────────────────────────────────────────
 
 function addTitleKeyword() {
   const val = titleInput.value.trim()
@@ -69,30 +72,8 @@ function addTitleKeyword() {
   titleInput.value = ''
 }
 
-function addDescriptionKeyword() {
-  const val = descriptionInput.value.trim()
-  if (!val) return
-  updateFilter('descriptionKeywords', addChips(val, props.modelValue.descriptionKeywords))
-  descriptionInput.value = ''
-}
-
-function addExcludedKeyword() {
-  const val = excludedInput.value.trim()
-  if (!val) return
-  updateFilter('excludedKeywords', addChips(val, props.modelValue.excludedKeywords))
-  excludedInput.value = ''
-}
-
 function removeTitleKeyword(kw: string) {
   updateFilter('titleKeywords', props.modelValue.titleKeywords.filter(k => k !== kw))
-}
-
-function removeDescriptionKeyword(kw: string) {
-  updateFilter('descriptionKeywords', props.modelValue.descriptionKeywords.filter(k => k !== kw))
-}
-
-function removeExcluded(kw: string) {
-  updateFilter('excludedKeywords', props.modelValue.excludedKeywords.filter(k => k !== kw))
 }
 
 function onTitleKeydown(e: KeyboardEvent) {
@@ -104,6 +85,41 @@ function onTitleKeydown(e: KeyboardEvent) {
   }
 }
 
+// ── Title exclude ────────────────────────────────────────────────────────────
+
+function addExcludedTitle() {
+  const val = excludedTitleInput.value.trim()
+  if (!val) return
+  updateFilter('excludedKeywords', addChips(val, props.modelValue.excludedKeywords))
+  excludedTitleInput.value = ''
+}
+
+function removeExcludedTitle(kw: string) {
+  updateFilter('excludedKeywords', props.modelValue.excludedKeywords.filter(k => k !== kw))
+}
+
+function onExcludedTitleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    addExcludedTitle()
+  } else if (e.key === 'Backspace' && !excludedTitleInput.value && props.modelValue.excludedKeywords.length) {
+    updateFilter('excludedKeywords', props.modelValue.excludedKeywords.slice(0, -1))
+  }
+}
+
+// ── Body include ─────────────────────────────────────────────────────────────
+
+function addDescriptionKeyword() {
+  const val = descriptionInput.value.trim()
+  if (!val) return
+  updateFilter('descriptionKeywords', addChips(val, props.modelValue.descriptionKeywords))
+  descriptionInput.value = ''
+}
+
+function removeDescriptionKeyword(kw: string) {
+  updateFilter('descriptionKeywords', props.modelValue.descriptionKeywords.filter(k => k !== kw))
+}
+
 function onDescriptionKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' || e.key === ',') {
     e.preventDefault()
@@ -113,20 +129,36 @@ function onDescriptionKeydown(e: KeyboardEvent) {
   }
 }
 
-function onExcludedKeydown(e: KeyboardEvent) {
+// ── Body exclude ─────────────────────────────────────────────────────────────
+
+function addExcludedBody() {
+  const val = excludedBodyInput.value.trim()
+  if (!val) return
+  updateFilter('excludedBodyKeywords', addChips(val, props.modelValue.excludedBodyKeywords))
+  excludedBodyInput.value = ''
+}
+
+function removeExcludedBody(kw: string) {
+  updateFilter('excludedBodyKeywords', props.modelValue.excludedBodyKeywords.filter(k => k !== kw))
+}
+
+function onExcludedBodyKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' || e.key === ',') {
     e.preventDefault()
-    addExcludedKeyword()
-  } else if (e.key === 'Backspace' && !excludedInput.value && props.modelValue.excludedKeywords.length) {
-    updateFilter('excludedKeywords', props.modelValue.excludedKeywords.slice(0, -1))
+    addExcludedBody()
+  } else if (e.key === 'Backspace' && !excludedBodyInput.value && props.modelValue.excludedBodyKeywords.length) {
+    updateFilter('excludedBodyKeywords', props.modelValue.excludedBodyKeywords.slice(0, -1))
   }
 }
+
+// ── Clear ─────────────────────────────────────────────────────────────────────
 
 function handleClear() {
   locationInput.value = ''
   titleInput.value = ''
+  excludedTitleInput.value = ''
   descriptionInput.value = ''
-  excludedInput.value = ''
+  excludedBodyInput.value = ''
   emit('clear')
 }
 </script>
@@ -136,14 +168,15 @@ function handleClear() {
     <div class="filter-panel-header">
       <h2 class="filter-panel-title">Filters</h2>
       <button
-      v-if="modelValue.isRemote !== null ||
-            modelValue.locations.length ||
-            modelValue.jobType ||
-            modelValue.postedAfter ||
-            modelValue.titleKeywords.length ||
-            modelValue.descriptionKeywords.length ||
-            modelValue.excludedKeywords.length ||
-            modelValue.minGlassdoorRating !== null"
+        v-if="modelValue.isRemote !== null ||
+              modelValue.locations.length ||
+              modelValue.jobType ||
+              modelValue.postedAfter ||
+              modelValue.titleKeywords.length ||
+              modelValue.descriptionKeywords.length ||
+              modelValue.excludedKeywords.length ||
+              modelValue.excludedBodyKeywords.length ||
+              modelValue.minGlassdoorRating !== null"
         class="btn btn-ghost btn-sm"
         @click="handleClear"
       >
@@ -201,78 +234,6 @@ function handleClear() {
       </select>
     </div>
 
-    <!-- Title Keywords -->
-    <div class="filter-group">
-      <label class="filter-label">
-        Title Keywords
-        <span class="label-hint">title only</span>
-      </label>
-      <div class="chip-input" @click="($refs.titleInputEl as HTMLInputElement)?.focus()">
-        <span v-for="kw in modelValue.titleKeywords" :key="kw" class="chip chip-include">
-          {{ kw }}
-          <button type="button" class="chip-remove" @click.stop="removeTitleKeyword(kw)">✕</button>
-        </span>
-        <input
-          ref="titleInputEl"
-          v-model="titleInput"
-          class="chip-text-input"
-          type="text"
-          placeholder="e.g. engineer, analyst"
-          @keydown="onTitleKeydown"
-          @blur="addTitleKeyword"
-        />
-      </div>
-      <p class="filter-hint">OR match — show jobs whose title contains any keyword</p>
-    </div>
-
-    <!-- Description Keywords -->
-    <div class="filter-group">
-      <label class="filter-label">
-        Description Keywords
-        <span class="label-hint">description only</span>
-      </label>
-      <div class="chip-input" @click="($refs.descriptionInputEl as HTMLInputElement)?.focus()">
-        <span v-for="kw in modelValue.descriptionKeywords" :key="kw" class="chip chip-include">
-          {{ kw }}
-          <button type="button" class="chip-remove" @click.stop="removeDescriptionKeyword(kw)">✕</button>
-        </span>
-        <input
-          ref="descriptionInputEl"
-          v-model="descriptionInput"
-          class="chip-text-input"
-          type="text"
-          placeholder="e.g. Python, SQL"
-          @keydown="onDescriptionKeydown"
-          @blur="addDescriptionKeyword"
-        />
-      </div>
-      <p class="filter-hint">OR match — show jobs whose description mentions any keyword</p>
-    </div>
-
-    <!-- Excluded Keywords -->
-    <div class="filter-group">
-      <label class="filter-label">
-        Exclude Keywords
-        <span class="label-hint">title only</span>
-      </label>
-      <div class="chip-input" @click="($refs.excludedInputEl as HTMLInputElement)?.focus()">
-        <span v-for="kw in modelValue.excludedKeywords" :key="kw" class="chip chip-exclude">
-          {{ kw }}
-          <button type="button" class="chip-remove" @click.stop="removeExcluded(kw)">✕</button>
-        </span>
-        <input
-          ref="excludedInputEl"
-          v-model="excludedInput"
-          class="chip-text-input"
-          type="text"
-          placeholder="e.g. intern, director"
-          @keydown="onExcludedKeydown"
-          @blur="addExcludedKeyword"
-        />
-      </div>
-      <p class="filter-hint">Hide jobs whose titles contain any keyword</p>
-    </div>
-
     <!-- Glassdoor Rating -->
     <div class="filter-group">
       <label class="filter-label">
@@ -300,6 +261,104 @@ function handleClear() {
         >
           ✕
         </button>
+      </div>
+    </div>
+
+    <!-- Title Keywords -->
+    <div class="filter-group keyword-group">
+      <div class="keyword-group-header">Title</div>
+
+      <div class="keyword-sub-group">
+        <label class="filter-label">
+          Include
+          <span class="label-hint">OR match</span>
+        </label>
+        <div class="chip-input" @click="($refs.titleInputEl as HTMLInputElement)?.focus()">
+          <span v-for="kw in modelValue.titleKeywords" :key="kw" class="chip chip-include">
+            {{ kw }}
+            <button type="button" class="chip-remove" @click.stop="removeTitleKeyword(kw)">✕</button>
+          </span>
+          <input
+            ref="titleInputEl"
+            v-model="titleInput"
+            class="chip-text-input"
+            type="text"
+            placeholder="e.g. engineer, analyst"
+            @keydown="onTitleKeydown"
+            @blur="addTitleKeyword"
+          />
+        </div>
+      </div>
+
+      <div class="keyword-sub-group">
+        <label class="filter-label">
+          Exclude
+          <span class="label-hint">hide if title contains</span>
+        </label>
+        <div class="chip-input" @click="($refs.excludedTitleInputEl as HTMLInputElement)?.focus()">
+          <span v-for="kw in modelValue.excludedKeywords" :key="kw" class="chip chip-exclude">
+            {{ kw }}
+            <button type="button" class="chip-remove" @click.stop="removeExcludedTitle(kw)">✕</button>
+          </span>
+          <input
+            ref="excludedTitleInputEl"
+            v-model="excludedTitleInput"
+            class="chip-text-input"
+            type="text"
+            placeholder="e.g. intern, director"
+            @keydown="onExcludedTitleKeydown"
+            @blur="addExcludedTitle"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Body Keywords -->
+    <div class="filter-group keyword-group">
+      <div class="keyword-group-header">Body</div>
+
+      <div class="keyword-sub-group">
+        <label class="filter-label">
+          Include
+          <span class="label-hint">OR match</span>
+        </label>
+        <div class="chip-input" @click="($refs.descriptionInputEl as HTMLInputElement)?.focus()">
+          <span v-for="kw in modelValue.descriptionKeywords" :key="kw" class="chip chip-include">
+            {{ kw }}
+            <button type="button" class="chip-remove" @click.stop="removeDescriptionKeyword(kw)">✕</button>
+          </span>
+          <input
+            ref="descriptionInputEl"
+            v-model="descriptionInput"
+            class="chip-text-input"
+            type="text"
+            placeholder="e.g. Python, SQL"
+            @keydown="onDescriptionKeydown"
+            @blur="addDescriptionKeyword"
+          />
+        </div>
+      </div>
+
+      <div class="keyword-sub-group">
+        <label class="filter-label">
+          Exclude
+          <span class="label-hint">hide if body contains</span>
+        </label>
+        <div class="chip-input" @click="($refs.excludedBodyInputEl as HTMLInputElement)?.focus()">
+          <span v-for="kw in modelValue.excludedBodyKeywords" :key="kw" class="chip chip-exclude">
+            {{ kw }}
+            <button type="button" class="chip-remove" @click.stop="removeExcludedBody(kw)">✕</button>
+          </span>
+          <input
+            ref="excludedBodyInputEl"
+            v-model="excludedBodyInput"
+            class="chip-text-input"
+            type="text"
+            placeholder="e.g. 10+ years, clearance"
+            @keydown="onExcludedBodyKeydown"
+            @blur="addExcludedBody"
+          />
+        </div>
       </div>
     </div>
 
@@ -394,10 +453,29 @@ function handleClear() {
   color: white;
 }
 
-.filter-checkboxes {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+/* Keyword groups */
+.keyword-group {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.keyword-group-header {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-3);
+}
+
+.keyword-sub-group {
+  margin-bottom: var(--space-3);
+}
+
+.keyword-sub-group:last-child {
+  margin-bottom: 0;
 }
 
 /* Chip input */
@@ -406,7 +484,7 @@ function handleClear() {
   flex-wrap: wrap;
   gap: var(--space-1);
   padding: var(--space-2);
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   min-height: 38px;
