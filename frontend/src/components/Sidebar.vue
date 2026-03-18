@@ -26,6 +26,7 @@ const api = useApi()
 
 const companySearch = ref('')
 const isSyncingAll = ref(false)
+const isRefreshingRatings = ref(false)
 
 async function syncAll() {
   if (isSyncingAll.value) return
@@ -39,6 +40,29 @@ async function syncAll() {
     uiStore.showError('Sync failed or scraper not available')
   } finally {
     isSyncingAll.value = false
+  }
+}
+
+const hasMissingRatings = computed(() =>
+  companiesStore.companies.some((c) => c.enabled && c.glassdoor_rating === null)
+)
+
+async function refreshMissingRatings() {
+  if (isRefreshingRatings.value) return
+  isRefreshingRatings.value = true
+  try {
+    const result = await api.post<{ refreshed: number; still_missing: number }>('/api/companies/refresh-ratings')
+    if (result.refreshed > 0) {
+      uiStore.showSuccess(`Fetched ${result.refreshed} missing Glassdoor rating${result.refreshed !== 1 ? 's' : ''}`)
+      await companiesStore.fetchCompanies()
+      jobsStore.fetchAllJobs()
+    } else {
+      uiStore.showInfo('No new ratings retrieved — Glassdoor may be blocking requests')
+    }
+  } catch {
+    uiStore.showError('Failed to refresh Glassdoor ratings')
+  } finally {
+    isRefreshingRatings.value = false
   }
 }
 
@@ -167,15 +191,15 @@ onMounted(() => {
 
         <!-- Glassdoor rating -->
         <a
-          v-if="company.glassdoor_url"
+          v-if="company.glassdoor_rating && company.glassdoor_url"
           :href="company.glassdoor_url"
           class="company-rating has-rating"
-          :title="`Glassdoor: ${company.glassdoor_rating?.toFixed(1) ?? 'N/A'}/5 — click to view reviews`"
+          :title="`Glassdoor: ${company.glassdoor_rating.toFixed(1)}/5 — click to view reviews`"
           target="_blank"
           rel="noopener"
           @click.stop
         >
-          ★ {{ company.glassdoor_rating?.toFixed(1) ?? 'N/A' }}
+          ★ {{ company.glassdoor_rating.toFixed(1) }}
         </a>
         <span
           v-else-if="company.glassdoor_rating"
@@ -183,6 +207,24 @@ onMounted(() => {
           :title="`Glassdoor: ${company.glassdoor_rating.toFixed(1)}/5`"
         >
           ★ {{ company.glassdoor_rating.toFixed(1) }}
+        </span>
+        <a
+          v-else-if="company.glassdoor_url"
+          :href="company.glassdoor_url"
+          class="company-rating rating-unavailable"
+          title="Glassdoor rating unavailable — click to view on Glassdoor"
+          target="_blank"
+          rel="noopener"
+          @click.stop
+        >
+          ★ --
+        </a>
+        <span
+          v-else-if="company.glassdoor_id"
+          class="company-rating rating-unavailable"
+          title="Glassdoor rating unavailable"
+        >
+          ★ --
         </span>
 
         <!-- Unread badge (always highlighted when > 0) -->
@@ -206,6 +248,16 @@ onMounted(() => {
       >
         <span class="sync-icon">↻</span>
         <span class="sync-label">{{ isSyncingAll ? 'Syncing...' : 'Sync All' }}</span>
+      </button>
+      <button
+        class="refresh-ratings-btn"
+        :class="{ spinning: isRefreshingRatings, 'has-missing': hasMissingRatings }"
+        :disabled="isRefreshingRatings"
+        title="Retry fetching missing Glassdoor ratings"
+        @click="refreshMissingRatings"
+      >
+        <span class="sync-icon">★</span>
+        <span class="sync-label">{{ isRefreshingRatings ? 'Fetching...' : 'Retry Ratings' }}</span>
       </button>
       <RouterLink to="/settings" class="nav-link footer-nav-link" :class="{ active: route.name === 'settings' }">
         <span class="nav-icon">⚙️</span>
@@ -471,6 +523,24 @@ a.company-rating.has-rating:hover {
   color: #e8a020;
 }
 
+.company-rating.rating-unavailable {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+a.company-rating.rating-unavailable {
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 1px 2px;
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+
+a.company-rating.rating-unavailable:hover {
+  background: rgba(128, 128, 128, 0.1);
+  opacity: 1;
+  text-decoration: underline;
+}
+
 /* Unread badge - always highlighted when count > 0 */
 .company-badge {
   padding: 1px 6px;
@@ -541,5 +611,44 @@ a.company-rating.has-rating:hover {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+.refresh-ratings-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+  opacity: 0.6;
+}
+
+.refresh-ratings-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+.refresh-ratings-btn.has-missing {
+  color: var(--text-secondary);
+  font-weight: 500;
+  opacity: 1;
+}
+
+.refresh-ratings-btn:disabled {
+  cursor: not-allowed;
+}
+
+.refresh-ratings-btn.spinning .sync-icon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
 }
 </style>

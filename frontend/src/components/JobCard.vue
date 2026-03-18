@@ -215,6 +215,20 @@ function openJobUrl(e: Event) {
         </svg>
         <span class="rating-value">{{ job.glassdoor_rating.toFixed(1) }}</span>
       </span>
+      <a
+        v-else-if="job.glassdoor_url"
+        :href="job.glassdoor_url"
+        class="glassdoor-rating rating-unavailable"
+        title="Glassdoor rating unavailable — click to view on Glassdoor"
+        target="_blank"
+        rel="noopener"
+        @click.stop
+      >
+        <svg class="star-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 1.25l1.75 3.55 3.92.57-2.84 2.77.67 3.91L8 10.27l-3.5 1.78.67-3.91L2.33 5.37l3.92-.57z"/>
+        </svg>
+        <span class="rating-value">--</span>
+      </a>
       <span v-else class="glassdoor-rating no-rating" title="No Glassdoor rating">
         <svg class="star-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <path d="M8 1.25l1.75 3.55 3.92.57-2.84 2.77.67 3.91L8 10.27l-3.5 1.78.67-3.91L2.33 5.37l3.92-.57z"/>
@@ -436,6 +450,16 @@ a.glassdoor-rating:hover {
 .glassdoor-rating.no-rating {
   color: var(--text-muted);
   opacity: 0.45;
+}
+
+.glassdoor-rating.rating-unavailable {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+a.glassdoor-rating.rating-unavailable:hover {
+  background: rgba(128, 128, 128, 0.1);
+  opacity: 1;
 }
 
 .job-card-meta .separator {

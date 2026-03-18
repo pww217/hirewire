@@ -1,14 +1,15 @@
 """Companies CRUD and sync endpoints.
 
 Implements:
-- POST /api/companies/detect         - Detect ATS type + slug from a career page URL
-- GET  /api/companies                - List all tracked companies
-- POST /api/companies                - Add a new company to track
-- GET  /api/companies/{id}           - Get company details
-- PUT  /api/companies/{id}           - Update company
-- DELETE /api/companies/{id}         - Remove company (jobs retain history, company_id set NULL)
-- POST /api/companies/sync-all       - Trigger full sync of all enabled companies
-- POST /api/companies/{id}/sync      - Trigger on-demand sync for a single company
+- POST /api/companies/detect           - Detect ATS type + slug from a career page URL
+- GET  /api/companies                  - List all tracked companies
+- POST /api/companies                  - Add a new company to track
+- GET  /api/companies/{id}             - Get company details
+- PUT  /api/companies/{id}             - Update company
+- DELETE /api/companies/{id}           - Remove company (jobs retain history, company_id set NULL)
+- POST /api/companies/sync-all         - Trigger full sync of all enabled companies
+- POST /api/companies/{id}/sync        - Trigger on-demand sync for a single company
+- POST /api/companies/refresh-ratings  - Re-fetch Glassdoor ratings for companies missing them
 """
 
 from datetime import datetime, timezone
@@ -26,6 +27,8 @@ from ..schemas.company import (
     CompanyDetectResponse,
     CompanyResponse,
     CompanyUpdate,
+    RefreshRatingResult,
+    RefreshRatingsResponse,
     SyncResponse,
     detect_ats_from_url,
 )
@@ -156,6 +159,93 @@ async def delete_company(
     await db.commit()
 
     log.info("company_deleted", id=company_id, name=company.name)
+
+
+@router.post("/refresh-ratings", response_model=RefreshRatingsResponse)
+async def refresh_missing_ratings(
+    db: AsyncSession = Depends(get_db),
+) -> RefreshRatingsResponse:
+    """Re-fetch Glassdoor ratings for all enabled companies that currently have none.
+
+    Only targets companies where glassdoor_rating IS NULL, so it won't re-hit
+    companies that already have a rating. Adds a 3s delay between lookups to
+    avoid rate limiting.
+    """
+    import asyncio
+    from scraper.src.glassdoor import lookup_company_rating
+    from scraper.src.db import Database as ScraperDB
+
+    query = select(TrackedCompany).where(
+        TrackedCompany.enabled == True,  # noqa: E712
+        TrackedCompany.glassdoor_rating == None,  # noqa: E711
+    )
+    result = await db.execute(query)
+    companies = list(result.scalars().all())
+
+    log.info("refresh_ratings_start", missing_count=len(companies))
+
+    results: list[RefreshRatingResult] = []
+    refreshed = 0
+
+    from scraper.src.config import settings as scraper_settings
+    scraper_db = ScraperDB(scraper_settings.database_url)
+    await scraper_db.connect()
+    try:  # noqa: SIM105
+        for i, company in enumerate(companies):
+            if i > 0:
+                await asyncio.sleep(3)
+            try:
+                gd = await lookup_company_rating(company.name)
+                if gd and gd.rating is not None:
+                    await scraper_db.update_glassdoor_rating(
+                        company.id, gd.glassdoor_id, gd.rating, gd.url
+                    )
+                    results.append(RefreshRatingResult(
+                        company_id=company.id,
+                        name=company.name,
+                        rating=gd.rating,
+                        success=True,
+                    ))
+                    refreshed += 1
+                    log.info(
+                        "refresh_rating_success",
+                        company=company.name,
+                        rating=gd.rating,
+                    )
+                else:
+                    if gd:
+                        await scraper_db.update_glassdoor_info(
+                            company.id, gd.glassdoor_id, gd.url
+                        )
+                    results.append(RefreshRatingResult(
+                        company_id=company.id,
+                        name=company.name,
+                        rating=None,
+                        success=False,
+                    ))
+                    log.warning("refresh_rating_still_missing", company=company.name)
+            except Exception as e:
+                results.append(RefreshRatingResult(
+                    company_id=company.id,
+                    name=company.name,
+                    rating=None,
+                    success=False,
+                ))
+                log.warning("refresh_rating_error", company=company.name, error=str(e))
+    finally:
+        await scraper_db.disconnect()
+
+    still_missing = len(companies) - refreshed
+    log.info(
+        "refresh_ratings_complete",
+        refreshed=refreshed,
+        still_missing=still_missing,
+    )
+    return RefreshRatingsResponse(
+        refreshed=refreshed,
+        still_missing=still_missing,
+        companies=results,
+    )
 
 
 @router.post("/sync-all", response_model=SyncResponse)

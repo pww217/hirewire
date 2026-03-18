@@ -441,7 +441,7 @@ class Database:
         rating: float | None,
         glassdoor_url: str,
     ) -> None:
-        """Persist Glassdoor rating data for a tracked company."""
+        """Persist Glassdoor rating data for a tracked company. Sets rating_updated_at."""
         query = """
             UPDATE tracked_companies
             SET glassdoor_id = $2,
@@ -452,6 +452,26 @@ class Database:
         """
         async with self.pool.acquire() as conn:
             await conn.execute(query, company_id, glassdoor_id, rating, glassdoor_url)
+
+    async def update_glassdoor_info(
+        self,
+        company_id: int,
+        glassdoor_id: int,
+        glassdoor_url: str,
+    ) -> None:
+        """Persist Glassdoor ID and URL without updating rating_updated_at.
+
+        Used when we found the company on Glassdoor but could not fetch the rating
+        (e.g. 403). Leaves rating_updated_at unchanged so the next sync retries.
+        """
+        query = """
+            UPDATE tracked_companies
+            SET glassdoor_id = $2,
+                glassdoor_url = $3
+            WHERE id = $1
+        """
+        async with self.pool.acquire() as conn:
+            await conn.execute(query, company_id, glassdoor_id, glassdoor_url)
 
     # =========================================================================
     # Statistics queries

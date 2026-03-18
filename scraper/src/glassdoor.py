@@ -60,9 +60,29 @@ async def _find_via_duckduckgo(
     name_matches = re.findall(r"Working-at-(.+?)-EI_IE", text)
     short_name = name_matches[0] if name_matches else None
 
-    # Try to grab rating from search snippet (e.g. "4.1 out of 5" or "4.1/5")
-    rating_matches = re.findall(r"(\d\.\d)\s*(?:out of|/)\s*5", text)
-    snippet_rating = float(rating_matches[0]) if rating_matches else None
+    # Try to grab rating from search snippet. Matches common formats:
+    # "4.1 out of 5", "4.1/5", "rated 4.1", "rating: 4.1", "★ 4.1", "4.1 stars"
+    rating_matches = re.findall(
+        r"(?:"
+        r"(\d\.\d)\s*(?:out of|/)\s*5"       # "4.1 out of 5" or "4.1/5"
+        r"|(?:rated?|rating)[:\s]+(\d\.\d)"   # "rated 4.1" or "rating: 4.1"
+        r"|★\s*(\d\.\d)"                      # "★ 4.1"
+        r"|(\d\.\d)\s*stars?"                 # "4.1 stars"
+        r")",
+        text,
+    )
+    snippet_rating = None
+    for match in rating_matches:
+        # Each match is a tuple of groups; take the first non-empty one
+        val = next((g for g in match if g), None)
+        if val:
+            try:
+                f = float(val)
+                if 0 < f <= 5.0:
+                    snippet_rating = f
+                    break
+            except ValueError:
+                pass
 
     return gd_id, short_name, snippet_rating
 

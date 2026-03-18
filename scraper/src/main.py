@@ -183,9 +183,23 @@ async def main(company_id: int | None = None) -> ScrapeResult:
                 try:
                     gd = await lookup_company_rating(company.name)
                     if gd:
-                        await db.update_glassdoor_rating(
-                            company.id, gd.glassdoor_id, gd.rating, gd.url
-                        )
+                        if gd.rating is not None:
+                            # Full success: save rating and mark as fresh
+                            await db.update_glassdoor_rating(
+                                company.id, gd.glassdoor_id, gd.rating, gd.url
+                            )
+                        else:
+                            # Found company on Glassdoor but couldn't get rating (e.g. 403).
+                            # Save ID/URL but leave rating_updated_at unchanged so next
+                            # sync retries rather than waiting 7 days.
+                            await db.update_glassdoor_info(
+                                company.id, gd.glassdoor_id, gd.url
+                            )
+                            log.warning(
+                                "glassdoor_rating_missing",
+                                company=company.name,
+                                glassdoor_id=gd.glassdoor_id,
+                            )
                 except Exception as e:
                     log.warning("glassdoor_lookup_failed", company=company.name, error=str(e))
 

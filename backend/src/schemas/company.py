@@ -134,3 +134,20 @@ class CompanyResponse(BaseModel):
     glassdoor_rating: float | None = None
     glassdoor_url: str | None = None
     rating_updated_at: datetime | None = None
+
+
+class RefreshRatingResult(BaseModel):
+    """Result for a single company in a ratings refresh."""
+
+    company_id: int
+    name: str
+    rating: float | None
+    success: bool
+
+
+class RefreshRatingsResponse(BaseModel):
+    """Response from POST /api/companies/refresh-ratings."""
+
+    refreshed: int
+    still_missing: int
+    companies: list[RefreshRatingResult]
