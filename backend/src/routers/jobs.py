@@ -6,6 +6,7 @@ Implements:
 - GET /api/jobs/{id} - Get single job with full description
 """
 
+import asyncio
 from datetime import datetime
 from typing import Literal
 
@@ -13,9 +14,9 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
-from ..database import get_db
+from ..database import async_session_maker, get_db
 from ..models.company import TrackedCompany
 from ..models.job import Application, Job, JobSource, UserJobState
 from ..schemas.job import (
@@ -310,14 +311,20 @@ async def get_user_states(
 
 @router.get("/jobs/all", response_model=JobBulkResponse)
 async def list_all_jobs(
+    include_descriptions: bool = Query(
+        False,
+        description="Include description HTML in response. Only needed for body keyword filtering.",
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> JobBulkResponse:
-    """Return all active, non-hidden jobs with descriptions for client-side filtering.
+    """Return all active, non-hidden jobs for client-side filtering.
 
     No pagination or filtering — the full dataset is returned in one response.
     The frontend loads this once on mount and filters/searches entirely in memory.
+    Descriptions are omitted by default to reduce payload size; pass
+    include_descriptions=true only when body keyword filters are active.
     """
-    log.debug("list_all_jobs_request")
+    log.debug("list_all_jobs_request", include_descriptions=include_descriptions)
 
     query = (
         select(Job)
@@ -331,15 +338,39 @@ async def list_all_jobs(
         )
         .order_by(Job.date_posted.desc().nulls_last())
     )
+    if not include_descriptions:
+        # Defer the large description column to avoid loading it from DB entirely
+        query = query.options(defer(Job.description))
 
     result = await db.execute(query)
     jobs = list(result.scalars().all())
 
     job_ids = [job.id for job in jobs]
-    sources_map = await get_job_sources(db, job_ids)
-    states_map = await get_user_states(db, job_ids)
-    gd_map = await get_glassdoor_info(db, [j.company_id for j in jobs])
-    applied_ids = await get_application_ids(db, job_ids)
+    company_ids = [j.company_id for j in jobs]
+
+    # Run the four independent lookups concurrently using separate DB sessions
+    async def fetch_sources() -> dict:
+        async with async_session_maker() as s:
+            return await get_job_sources(s, job_ids)
+
+    async def fetch_states() -> dict:
+        async with async_session_maker() as s:
+            return await get_user_states(s, job_ids)
+
+    async def fetch_glassdoor() -> dict:
+        async with async_session_maker() as s:
+            return await get_glassdoor_info(s, company_ids)
+
+    async def fetch_applied() -> set:
+        async with async_session_maker() as s:
+            return await get_application_ids(s, job_ids)
+
+    sources_map, states_map, gd_map, applied_ids = await asyncio.gather(
+        fetch_sources(),
+        fetch_states(),
+        fetch_glassdoor(),
+        fetch_applied(),
+    )
 
     job_responses = []
     for job in jobs:
@@ -371,7 +402,7 @@ async def list_all_jobs(
                 is_favorite=is_favorite,
                 is_hidden=is_hidden,
                 is_seen=is_seen,
-                description=job.description,
+                description=job.description if include_descriptions else None,
                 glassdoor_rating=gd_rating,
                 glassdoor_url=gd_url,
                 is_applied=job.id in applied_ids,

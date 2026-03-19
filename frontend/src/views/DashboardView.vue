@@ -837,8 +837,8 @@ a.company-bar-rating:hover {
 .dashboard-content > :deep(.filter-panel) {
   position: sticky;
   top: 140px; /* Below sticky header */
-  width: 280px;
-  min-width: 280px;
+  width: 210px;
+  min-width: 210px;
   max-height: calc(100vh - 160px);
   overflow-y: auto;
   border-left: 1px solid var(--border-color);
