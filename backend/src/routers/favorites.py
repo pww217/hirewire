@@ -13,12 +13,20 @@ from datetime import datetime, timezone
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.job import Application, Job, UserJobState
 from ..schemas.job import ApplyResponse, FavoriteResponse, HideResponse, SeenResponse
+
+
+class SeenBatchRequest(BaseModel):
+    """Request body for batch-seen endpoint."""
+
+    job_ids: list[int]
 
 router = APIRouter(tags=["favorites"])
 log = structlog.get_logger()
@@ -348,6 +356,40 @@ async def mark_all_seen(
 
     log.info("mark_all_seen_success", company_id=company_id, marked_count=len(job_ids))
     return {"marked_count": len(job_ids)}
+
+
+@router.post("/jobs/seen/batch")
+async def mark_seen_batch(
+    body: SeenBatchRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Bulk-mark a specific set of job IDs as seen in a single query.
+
+    Uses a PostgreSQL upsert so it is safe to call even if state rows
+    don't exist yet for some of the jobs.
+    """
+    if not body.job_ids:
+        return {"marked_count": 0}
+
+    log.debug("mark_seen_batch_request", count=len(body.job_ids))
+    now = datetime.now(timezone.utc)
+
+    stmt = (
+        pg_insert(UserJobState)
+        .values([
+            {"job_id": jid, "is_favorite": False, "is_hidden": False, "is_seen": True, "seen_at": now}
+            for jid in body.job_ids
+        ])
+        .on_conflict_do_update(
+            index_elements=["job_id"],
+            set_={"is_seen": True, "seen_at": now},
+        )
+    )
+    await db.execute(stmt)
+    await db.flush()
+
+    log.debug("mark_seen_batch_success", count=len(body.job_ids))
+    return {"marked_count": len(body.job_ids)}
 
 
 @router.post("/jobs/{job_id}/apply", response_model=ApplyResponse)

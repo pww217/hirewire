@@ -42,6 +42,19 @@ function stripHtml(html: string | null | undefined): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+/** Escape special regex chars in a user-provided string */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Build a regex that matches a keyword at word boundaries.
+ * e.g. "data" matches "Data Scientist" but not "Metadata Engineer".
+ */
+function keywordRegex(kw: string): RegExp {
+  return new RegExp(`(?:^|[\\s/\\-_,()])${escapeRegex(kw)}(?=[\\s/\\-_,().]|$)`, 'i')
+}
+
 /** Compare dates for sorting, nulls last */
 function compareDates(a: string | null, b: string | null, asc: boolean): number {
   if (!a && !b) return 0
@@ -67,13 +80,15 @@ export const useJobsStore = defineStore('jobs', () => {
   const error = ref<string | null>(null)
 
   // ── MiniSearch index ───────────────────────────────────────────────────────
-  let searchIndex = new MiniSearch<{ id: number; title: string; company: string; location: string; description: string }>({
-    fields: ['title', 'company', 'location', 'description'],
+  // Description intentionally excluded: body keyword filters handle that;
+  // removing it from the index avoids indexing HTML blobs we may not even have.
+  let searchIndex = new MiniSearch<{ id: number; title: string; company: string; location: string }>({
+    fields: ['title', 'company', 'location'],
     storeFields: ['id'],
     searchOptions: {
       prefix: true,
       fuzzy: 0.2,
-      boost: { title: 3, company: 2, location: 1.5, description: 1 },
+      boost: { title: 3, company: 2, location: 1.5 },
     },
   })
 
@@ -82,12 +97,12 @@ export const useJobsStore = defineStore('jobs', () => {
 
   function buildSearchIndex(jobs: JobWithDescription[]) {
     searchIndex = new MiniSearch({
-      fields: ['title', 'company', 'location', 'description'],
+      fields: ['title', 'company', 'location'],
       storeFields: ['id'],
       searchOptions: {
         prefix: true,
         fuzzy: 0.2,
-        boost: { title: 3, company: 2, location: 1.5, description: 1 },
+        boost: { title: 3, company: 2, location: 1.5 },
       },
     })
     searchIndex.addAll(
@@ -98,7 +113,6 @@ export const useJobsStore = defineStore('jobs', () => {
         location: [j.location_raw, j.location_city, j.location_state, j.location_country]
           .filter(Boolean)
           .join(' '),
-        description: stripHtml(j.description),
       }))
     )
   }
@@ -118,6 +132,16 @@ export const useJobsStore = defineStore('jobs', () => {
     }, 300)
   }
 
+  // Whether descriptions were included in the last fetch (only true when body filters are active)
+  const descriptionsLoaded = ref(false)
+
+  // ── Cached regex patterns (recompute only when keyword arrays change) ──────
+  const titleIncludePatterns = computed(() => filters.value.titleKeywords.map(keywordRegex))
+  const titleExcludePatterns = computed(() => filters.value.excludedKeywords.map(keywordRegex))
+  const bodyIncludePatterns = computed(() => filters.value.descriptionKeywords.map(keywordRegex))
+  const bodyExcludePatterns = computed(() => filters.value.excludedBodyKeywords.map(keywordRegex))
+  const locationPatterns = computed(() => filters.value.locations.map(keywordRegex))
+
   // ── Getters ────────────────────────────────────────────────────────────────
   const activeFilterCount = computed(() => {
     let count = 0
@@ -129,6 +153,7 @@ export const useJobsStore = defineStore('jobs', () => {
     if (filters.value.titleKeywords.length > 0) count++
     if (filters.value.descriptionKeywords.length > 0) count++
     if (filters.value.excludedKeywords.length > 0) count++
+    if (filters.value.excludedBodyKeywords.length > 0) count++
     if (filters.value.favoritesOnly) count++
     if (filters.value.minGlassdoorRating !== null) count++
     return count
@@ -150,16 +175,16 @@ export const useJobsStore = defineStore('jobs', () => {
       result = result.filter(j => ids.has(j.id))
     }
 
-    // 3. Location — OR across all chips
+    // 3. Location — OR across all chips (word-boundary)
     if (filters.value.locations.length > 0) {
+      const patterns = locationPatterns.value
       result = result.filter(j =>
-        filters.value.locations.some(loc => {
-          const l = loc.toLowerCase()
-          return j.location_city?.toLowerCase().includes(l) ||
-                 j.location_state?.toLowerCase().includes(l) ||
-                 j.location_raw?.toLowerCase().includes(l) ||
-                 j.location_country?.toLowerCase().includes(l)
-        })
+        patterns.some(re =>
+          (j.location_city && re.test(j.location_city)) ||
+          (j.location_state && re.test(j.location_state)) ||
+          (j.location_raw && re.test(j.location_raw)) ||
+          (j.location_country && re.test(j.location_country))
+        )
       )
     }
 
@@ -195,54 +220,44 @@ export const useJobsStore = defineStore('jobs', () => {
       }
     }
 
-    // 8a. Title keywords (OR) — must match at least one in title
+    // 7a. Title keywords (OR) — word-boundary; cached patterns
     if (filters.value.titleKeywords.length > 0) {
-      const kws = filters.value.titleKeywords.map(k => k.toLowerCase())
-      result = result.filter(j => {
-        const title = j.title.toLowerCase()
-        return kws.some(kw => title.includes(kw))
-      })
+      const patterns = titleIncludePatterns.value
+      result = result.filter(j => patterns.some(re => re.test(j.title)))
     }
 
-    // 8b. Description keywords (OR) — must match at least one in description
-    if (filters.value.descriptionKeywords.length > 0) {
-      const kws = filters.value.descriptionKeywords.map(k => k.toLowerCase())
-      result = result.filter(j => {
-        const desc = stripHtml(j.description).toLowerCase()
-        return kws.some(kw => desc.includes(kw))
-      })
-    }
-
-    // 9. Excluded keywords — title only
+    // 7b. Title exclude keywords — word-boundary; cached patterns
     if (filters.value.excludedKeywords.length > 0) {
-      const exKws = filters.value.excludedKeywords.map(k => k.toLowerCase())
+      const patterns = titleExcludePatterns.value
+      result = result.filter(j => !patterns.some(re => re.test(j.title)))
+    }
+
+    // 8. Body keyword filters — strip description once, test include + exclude together
+    const hasBodyInclude = filters.value.descriptionKeywords.length > 0
+    const hasBodyExclude = filters.value.excludedBodyKeywords.length > 0
+    if ((hasBodyInclude || hasBodyExclude) && descriptionsLoaded.value) {
+      const incPatterns = bodyIncludePatterns.value
+      const excPatterns = bodyExcludePatterns.value
       result = result.filter(j => {
-        const title = j.title.toLowerCase()
-        return !exKws.some(kw => title.includes(kw))
+        const text = stripHtml(j.description)
+        if (hasBodyInclude && !incPatterns.some(re => re.test(text))) return false
+        if (hasBodyExclude && excPatterns.some(re => re.test(text))) return false
+        return true
       })
     }
 
-    // 9b. Excluded body keywords — description only
-    if (filters.value.excludedBodyKeywords.length > 0) {
-      const exKws = filters.value.excludedBodyKeywords.map(k => k.toLowerCase())
-      result = result.filter(j => {
-        const desc = stripHtml(j.description).toLowerCase()
-        return !exKws.some(kw => desc.includes(kw))
-      })
-    }
-
-    // 10. Favorites only
+    // 9. Favorites only
     if (filters.value.favoritesOnly) {
       result = result.filter(j => j.is_favorite)
     }
 
-    // 11. Min Glassdoor rating — jobs without ratings are included, not excluded
+    // 10. Min Glassdoor rating — jobs without ratings are included, not excluded
     if (filters.value.minGlassdoorRating !== null) {
       const min = filters.value.minGlassdoorRating
       result = result.filter(j => j.glassdoor_rating === null || j.glassdoor_rating >= min)
     }
 
-    // 12. Sort
+    // 11. Sort
     const asc = sortOrder.value === 'asc'
     return [...result].sort((a, b) => {
       switch (sortBy.value) {
@@ -337,16 +352,24 @@ export const useJobsStore = defineStore('jobs', () => {
   // ── Actions ────────────────────────────────────────────────────────────────
 
   /**
-   * Fetch all active jobs with descriptions from the bulk endpoint.
-   * Called on mount and after any sync operation.
-   * Also auto-marks stale jobs (>10 days old) as seen in the background.
+   * Fetch all active jobs from the bulk endpoint.
+   * When body keyword filters are active, requests descriptions; otherwise omits them
+   * to reduce payload size. Called on mount, after sync, and when body filters are activated.
    */
   async function fetchAllJobs() {
+    const needsDescriptions =
+      filters.value.descriptionKeywords.length > 0 ||
+      filters.value.excludedBodyKeywords.length > 0
+    const url = needsDescriptions
+      ? '/api/jobs/all?include_descriptions=true'
+      : '/api/jobs/all'
+
     isLoading.value = true
     error.value = null
     try {
-      const response = await api.get<JobBulkResponse>('/api/jobs/all')
+      const response = await api.get<JobBulkResponse>(url)
       allJobs.value = response.jobs
+      descriptionsLoaded.value = needsDescriptions
       buildSearchIndex(response.jobs)
       if (filters.value.q.trim()) {
         runSearch(filters.value.q)
@@ -366,6 +389,7 @@ export const useJobsStore = defineStore('jobs', () => {
   /**
    * Batch-mark stale unseen jobs (date_posted > STALE_DAYS ago) as seen.
    * Fire-and-forget — failures are silently ignored.
+   * Uses the batch endpoint to reduce N individual API calls to one.
    */
   function markStaleAsSeen(jobs: JobWithDescription[]) {
     const cutoff = Date.now() - STALE_DAYS * 86_400_000
@@ -379,10 +403,9 @@ export const useJobsStore = defineStore('jobs', () => {
       updateJobInList(j.id, { is_seen: true })
     }
 
-    // Persist in background — fire and forget
-    Promise.allSettled(
-      staleUnseen.map((j) => api.post(`/api/jobs/${j.id}/seen`))
-    ).catch(() => {/* ignore */})
+    // Single batch call instead of N individual calls
+    api.post('/api/jobs/seen/batch', { job_ids: staleUnseen.map(j => j.id) })
+      .catch(() => {/* ignore */})
   }
 
   /**
@@ -403,13 +426,28 @@ export const useJobsStore = defineStore('jobs', () => {
 
   /**
    * Update filters. Text search (q) triggers debounced MiniSearch query.
+   * If body keyword filters become active and descriptions aren't loaded, re-fetches with them.
    */
   function setFilters(newFilters: Partial<FilterState>) {
-    const prev = filters.value.q
+    const prevQ = filters.value.q
+    const hadBodyFilters =
+      filters.value.descriptionKeywords.length > 0 ||
+      filters.value.excludedBodyKeywords.length > 0
+
     filters.value = { ...filters.value, ...newFilters }
-    if (newFilters.q !== undefined && newFilters.q !== prev) {
+
+    if (newFilters.q !== undefined && newFilters.q !== prevQ) {
       runSearch(newFilters.q)
     }
+
+    // Re-fetch with descriptions if body filters just became active
+    const hasBodyFilters =
+      filters.value.descriptionKeywords.length > 0 ||
+      filters.value.excludedBodyKeywords.length > 0
+    if (!hadBodyFilters && hasBodyFilters && !descriptionsLoaded.value) {
+      fetchAllJobs()
+    }
+
     // Persist everything except transient fields (q, favoritesOnly)
     if (Object.keys(newFilters).some(k => k !== 'q' && k !== 'favoritesOnly')) {
       schedulePersist()
@@ -525,6 +563,7 @@ export const useJobsStore = defineStore('jobs', () => {
     isLoading,
     error,
     searchResultIds,
+    descriptionsLoaded,
 
     // Auto-refresh state
     lastRefresh,

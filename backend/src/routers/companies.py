@@ -326,10 +326,12 @@ async def refresh_missing_ratings(
     """Re-fetch Glassdoor ratings for all enabled companies that currently have none.
 
     Only targets companies where glassdoor_rating IS NULL, so it won't re-hit
-    companies that already have a rating. Adds a 3s delay between lookups to
-    avoid rate limiting.
+    companies that already have a rating. Uses adaptive delays between lookups —
+    backs off significantly after consecutive failures to avoid triggering
+    Glassdoor rate limits.
     """
     import asyncio
+    import random
     from scraper.src.glassdoor import lookup_company_rating
     from scraper.src.db import Database as ScraperDB
 
@@ -340,10 +342,15 @@ async def refresh_missing_ratings(
     result = await db.execute(query)
     companies = list(result.scalars().all())
 
+    # Shuffle to avoid always hitting the same companies first
+    random.shuffle(companies)
+
     log.info("refresh_ratings_start", missing_count=len(companies))
 
     results: list[RefreshRatingResult] = []
     refreshed = 0
+    consecutive_failures = 0
+    BASE_DELAY = 5.0
 
     from scraper.src.config import settings as scraper_settings
     scraper_db = ScraperDB(scraper_settings.database_url)
@@ -351,7 +358,10 @@ async def refresh_missing_ratings(
     try:  # noqa: SIM105
         for i, company in enumerate(companies):
             if i > 0:
-                await asyncio.sleep(3)
+                # Adaptive delay: back off after consecutive failures
+                delay = BASE_DELAY * (1.5 ** min(consecutive_failures, 4))
+                jitter = delay * (0.7 + random.random() * 0.6)
+                await asyncio.sleep(jitter)
             try:
                 gd = await lookup_company_rating(company.name)
                 if gd and gd.rating is not None:
@@ -365,6 +375,7 @@ async def refresh_missing_ratings(
                         success=True,
                     ))
                     refreshed += 1
+                    consecutive_failures = 0
                     log.info(
                         "refresh_rating_success",
                         company=company.name,
@@ -381,7 +392,12 @@ async def refresh_missing_ratings(
                         rating=None,
                         success=False,
                     ))
-                    log.warning("refresh_rating_still_missing", company=company.name)
+                    consecutive_failures += 1
+                    log.warning(
+                        "refresh_rating_still_missing",
+                        company=company.name,
+                        consecutive_failures=consecutive_failures,
+                    )
             except Exception as e:
                 results.append(RefreshRatingResult(
                     company_id=company.id,
@@ -389,6 +405,7 @@ async def refresh_missing_ratings(
                     rating=None,
                     success=False,
                 ))
+                consecutive_failures += 1
                 log.warning("refresh_rating_error", company=company.name, error=str(e))
     finally:
         await scraper_db.disconnect()
