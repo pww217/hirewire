@@ -16,13 +16,12 @@
 
 ## Overview
 
-HireWire runs as three Docker containers orchestrated by Docker Compose:
+HireWire runs as two Docker containers orchestrated by Docker Compose:
 
 - **postgres** — PostgreSQL 16, initialized from `shared/schema.sql`
-- **web** — FastAPI backend + compiled Vue 3 frontend (port 8000)
-- **scraper** — ATS scraper service with HTTP trigger + schedule (port 8888)
+- **web** — FastAPI backend + compiled Vue 3 frontend + embedded scraper scheduler (port 8000)
 
-Both `web` and `scraper` are built from the same `Dockerfile` using different entrypoint commands.
+The scraper runs as an embedded scheduler within the `web` container — no separate scraper container is needed.
 
 ---
 
@@ -31,8 +30,7 @@ Both `web` and `scraper` are built from the same `Dockerfile` using different en
 ```yaml
 services:
   postgres:   # PostgreSQL 16, port 5432
-  web:        # FastAPI + Vue, port 8000, SCRAPER_URL=http://scraper:8888
-  scraper:    # Scraper service, port 8888, SCRAPE_SCHEDULE=09:00,17:00
+  web:        # FastAPI + Vue + embedded scraper, port 8000
 ```
 
 ### Starting everything
@@ -44,46 +42,28 @@ docker-compose logs -f      # Tail logs
 docker-compose down -v      # Stop and remove volumes
 ```
 
-### Individual services
-
-```bash
-# Start only postgres (for local dev)
-docker-compose up -d postgres
-
-# Rebuild and restart only the web container
-docker-compose build web && docker-compose up -d web
-
-# Rebuild and restart only the scraper
-docker-compose build scraper && docker-compose up -d scraper
-```
-
 ### Trigger a manual sync
 
 ```bash
-# Via make (hits the scraper service)
+# Via make
 make sync
 
-# Directly
-curl -X POST http://localhost:8888/trigger
+# Directly (hits the backend API)
+curl -X POST http://localhost:8000/api/companies/sync-all
 ```
 
 ---
 
 ## Container Image
 
-A single `Dockerfile` builds both services using a multi-stage build:
+A single `Dockerfile` builds the image using a multi-stage build:
 
-1. **frontend-build** — Node 20, runs `npm ci && npm run build`
-2. **final** — Python 3.12-slim, installs Python deps, copies built frontend to `/app/static`
+1. **frontend-builder** — Node 20-slim, runs `npm install && npm run build`
+2. **final** — Python 3.14-slim, installs Python deps, copies built frontend to `/app/static`
 
-The default `CMD` starts the web API:
+The default `CMD` starts the unified API (which also runs the embedded scraper scheduler):
 ```dockerfile
 CMD ["uvicorn", "backend.src.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-The scraper container overrides the command in `docker-compose.yaml`:
-```yaml
-command: ["python", "-m", "scraper.src.server"]
 ```
 
 Image published to GitHub Container Registry on every push to `main`:
@@ -96,26 +76,18 @@ ghcr.io/pww217/hirewire:<git-sha>
 
 ## Environment Variables
 
-### Web container
-
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
-| `SCRAPER_URL` | No | `None` | URL of scraper service for sync triggers |
+| `SCRAPE_SCHEDULE` | No | `09:00,17:00` | Comma-separated UTC times for scheduled scrapes |
+| `CORS_ORIGINS` | No | localhost origins | Comma-separated allowed CORS origins |
+| `DB_POOL_SIZE` | No | `5` | SQLAlchemy connection pool size |
+| `DB_POOL_OVERFLOW` | No | `10` | Max connections above pool size |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FORMAT` | No | `json` | `json` or `console` |
-| `ENVIRONMENT` | No | `production` | `development` or `production` |
-
-If `SCRAPER_URL` is unset, sync trigger endpoints return 503. The scheduler in the scraper container runs independently regardless.
-
-### Scraper container
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
-| `SCRAPE_SCHEDULE` | No | `09:00,17:00` | Comma-separated UTC times |
-| `LOG_LEVEL` | No | `INFO` | Log level |
-| `LOG_FORMAT` | No | `json` | Log format |
+| `ENVIRONMENT` | No | `production` | `development` enables `/docs` and `/redoc` |
+| `STALE_JOB_DAYS` | No | `14` | Days before a job not seen in ATS is marked inactive |
+| `GLASSDOOR_RATING_STALE_DAYS` | No | `7` | Days before a cached Glassdoor rating is refreshed |
 
 ---
 
@@ -123,53 +95,31 @@ If `SCRAPER_URL` is unset, sync trigger endpoints return 503. The scheduler in t
 
 The schema is initialized from `shared/schema.sql` when the postgres container first starts (Docker mounts it as an init script).
 
-For incremental changes on an existing database:
+For incremental changes on an existing database, the app runs Alembic migrations automatically on startup. Migrations live in `alembic/versions/`.
 
 ```bash
-# Apply all migrations
-make db-migrate
+# Generate a new migration
+make migration MSG="describe change"
 
-# Or manually
-docker exec -i hirewire-postgres-1 psql -U hirewire -d hirewire \
-  < shared/migrations/001_company_first.sql
+# Apply migrations manually
+DATABASE_URL=postgresql://hirewire:localdev@localhost:5432/hirewire \
+  python -m alembic upgrade head
 ```
 
-Migration files in `shared/migrations/` are **idempotent** (`IF NOT EXISTS`, `IF EXISTS`) and safe to re-run.
+### Migration history
 
-### Current migrations
-
-| File | Description |
-|------|-------------|
-| `001_company_first.sql` | Adds `company_id` FK to jobs, drops `search_configs` |
-| `002_settings_locations.sql` | Replaces `excluded_companies` with `preferred_locations TEXT[]` |
-| `003_included_keywords.sql` | Adds `included_keywords TEXT[]` to user_settings |
+| Revision | Description |
+|----------|-------------|
+| `e39303dba4ed` | Baseline schema |
+| `a1b2c3d4e5f6` | Split keywords, persist filters |
+| `b2c3d4e5f6a7` | Add `excluded_body_keywords` |
+| `c3d4e5f6a7b8` | Drop unused `excluded_companies` column |
 
 ---
 
 ## CI Pipeline
 
-GitHub Actions (`.github/workflows/ci.yaml`) runs on every push to `main` and on pull requests.
-
-### Jobs
-
-```
-lint ──────────┐
-               ├──► build (push image to GHCR)
-typecheck ─────┘
-```
-
-**lint** — `ruff check backend/ scraper/`
-
-**typecheck** — `vue-tsc --noEmit` in the `frontend/` directory
-
-**build** — Docker Buildx multi-platform build; pushes `:latest` and `:<sha>` tags on `main` merges; build-only on PRs
-
-### Image tags
-
-| Event | Tags |
-|-------|------|
-| Push to `main` | `latest`, `<git-sha>` |
-| Pull request | `pr-<number>` (build only, not pushed) |
+GitHub Actions (`.github/workflows/ci.yaml`) runs on every push to `main` and on pull requests. Delegates to the reusable workflow at `pww217/k3s-home`.
 
 ---
 
@@ -177,8 +127,7 @@ typecheck ─────┘
 
 K8s deployment is not currently active but is planned. The intended model:
 
-- **Deployment** — `web` container (API + frontend), standard HTTP ingress
-- **Deployment** — `scraper` container (long-running service), no ingress needed
+- **Deployment** — `web` container (API + frontend + embedded scraper), standard HTTP ingress
 - **PostgreSQL** — external managed instance or in-cluster StatefulSet
 
-The single Docker image supports both entrypoints, so K8s deployment requires only a `values.yaml` change for the scraper command override.
+The single Docker image handles everything; K8s deployment requires only a standard Deployment manifest.

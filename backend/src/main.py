@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from . import __version__
 from .config import settings
 from .routers import (
     companies_router,
@@ -165,7 +166,8 @@ async def _get_db_revision() -> str | None:
             return rows[0]["version_num"] if rows else None
         finally:
             await conn.close()
-    except Exception:
+    except Exception as e:
+        log.warning("db_revision_check_failed", error=str(e))
         return None
 
 
@@ -228,7 +230,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="HireWire API",
         description="Company-first job tracker API",
-        version="0.2.0",
+        version=__version__,
         lifespan=lifespan,
         docs_url="/docs" if settings.environment != "production" else None,
         redoc_url="/redoc" if settings.environment != "production" else None,
@@ -240,12 +242,7 @@ def create_app() -> FastAPI:
     # CORS middleware - allow frontend dev server
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",  # Vite dev server
-            "http://localhost:3000",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:3000",
-        ],
+        allow_origins=settings.cors_origins_list,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
@@ -335,7 +332,7 @@ def create_app() -> FastAPI:
             """API information when no frontend is deployed."""
             return {
                 "name": "HireWire API",
-                "version": "0.1.0",
+                "version": __version__,
                 "docs": "/docs",
             }
 

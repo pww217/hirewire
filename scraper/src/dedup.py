@@ -6,7 +6,6 @@ duplicate job postings across different sources.
 
 import hashlib
 import re
-from typing import Optional
 
 import structlog
 
@@ -49,7 +48,7 @@ def normalize_company(company: str) -> str:
 
 
 def generate_dedup_hash(
-    company: str, title: str, location: Optional[str]
+    company: str, title: str, location: str | None
 ) -> str:
     """Generate SHA-256 hash for deduplication.
 

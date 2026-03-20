@@ -39,8 +39,8 @@ def create_engine() -> AsyncEngine:
         url,
         echo=False,
         pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_pool_overflow,
     )
 
 

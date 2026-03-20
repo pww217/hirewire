@@ -12,7 +12,6 @@ Response shape (confirmed via smoke test on spotify):
 """
 
 from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 import structlog
@@ -96,7 +95,7 @@ class LeverScraper(BaseScraper):
 
         return result
 
-    def _parse_job(self, job: dict) -> Optional[RawJob]:
+    def _parse_job(self, job: dict) -> RawJob | None:
         """Convert a single Lever job dict to a RawJob."""
         job_id = job.get("id")
         title = (job.get("text") or "").strip()
@@ -145,7 +144,7 @@ class LeverScraper(BaseScraper):
         )
 
 
-def _build_description(job: dict) -> Optional[str]:
+def _build_description(job: dict) -> str | None:
     """Assemble a full HTML description from all Lever content sections.
 
     Lever splits job content across:
@@ -177,7 +176,7 @@ def _build_description(job: dict) -> Optional[str]:
     return "\n".join(parts)
 
 
-def _parse_ms_epoch(value: Optional[int]) -> Optional[datetime]:
+def _parse_ms_epoch(value: int | None) -> datetime | None:
     """Parse milliseconds-since-epoch timestamp."""
     if value is None:
         return None

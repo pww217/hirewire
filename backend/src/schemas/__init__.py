@@ -1,6 +1,6 @@
 """Pydantic schemas for API request/response validation."""
 
-from .common import ErrorResponse, PaginationParams, ValidationErrorDetail
+from .common import HealthResponse
 from .company import (
     CompanyCreate,
     CompanyDetectRequest,
@@ -22,9 +22,7 @@ from .user_settings import (
 )
 
 __all__ = [
-    "PaginationParams",
-    "ErrorResponse",
-    "ValidationErrorDetail",
+    "HealthResponse",
     "CompanyCreate",
     "CompanyDetectRequest",
     "CompanyDetectResponse",

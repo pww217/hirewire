@@ -5,7 +5,6 @@ Models match the PostgreSQL schema defined in shared/schema.sql.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
 from sqlalchemy import (
     Boolean,
@@ -33,40 +32,38 @@ class Job(Base):
     dedup_hash: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
 
     # Source company FK (references tracked_companies)
-    company_id: Mapped["Optional[int]"] = mapped_column(Integer, nullable=True)
+    company_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("tracked_companies.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Core fields
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     company: Mapped[str] = mapped_column(String(255), nullable=False)
-    company_url: Mapped["Optional[str]"] = mapped_column(String(500), nullable=True)
+    company_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Location (normalized)
-    location_raw: Mapped["Optional[str]"] = mapped_column(String(255), nullable=True)
-    location_city: Mapped["Optional[str]"] = mapped_column(String(100), nullable=True)
-    location_state: Mapped["Optional[str]"] = mapped_column(String(100), nullable=True)
-    location_country: Mapped["Optional[str]"] = mapped_column(
+    location_raw: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    location_state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    location_country: Mapped[str | None] = mapped_column(
         String(100), default="USA", nullable=True
     )
     is_remote: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Job details
-    description: Mapped["Optional[str]"] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_url: Mapped[str] = mapped_column(String(1000), nullable=False)
-    job_type: Mapped["Optional[str]"] = mapped_column(String(50), nullable=True)
+    job_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Salary (normalized to yearly)
-    salary_min: Mapped["Optional[Decimal]"] = mapped_column(
-        Numeric(12, 2), nullable=True
-    )
-    salary_max: Mapped["Optional[Decimal]"] = mapped_column(
-        Numeric(12, 2), nullable=True
-    )
-    salary_interval: Mapped["Optional[str]"] = mapped_column(
+    salary_min: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    salary_max: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    salary_interval: Mapped[str | None] = mapped_column(
         String(20), default="yearly", nullable=True
     )
 
     # Dates
-    date_posted: Mapped["Optional[datetime]"] = mapped_column(
+    date_posted: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     first_seen: Mapped[datetime] = mapped_column(
@@ -77,35 +74,46 @@ class Job(Base):
     )
 
     # Company metadata
-    company_size: Mapped["Optional[str]"] = mapped_column(String(50), nullable=True)
-    company_industry: Mapped["Optional[str]"] = mapped_column(
-        String(100), nullable=True
-    )
+    company_size: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    company_industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Full-text search vector (managed by PostgreSQL trigger)
-    search_vector: Mapped["Optional[str]"] = mapped_column(TSVECTOR, nullable=True)
+    search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
 
     # Relationships
     sources: Mapped[list["JobSource"]] = relationship(
         "JobSource", back_populates="job", cascade="all, delete-orphan"
     )
-    user_state: Mapped["Optional[UserJobState]"] = relationship(
+    user_state: Mapped["UserJobState | None"] = relationship(
         "UserJobState", back_populates="job", uselist=False, cascade="all, delete-orphan"
     )
 
     __table_args__ = (
         Index("ix_jobs_dedup_hash", "dedup_hash"),
+        Index("ix_jobs_company_id", "company_id"),
         Index("ix_jobs_date_posted", "date_posted", postgresql_ops={"date_posted": "DESC"}),
         Index("ix_jobs_first_seen", "first_seen", postgresql_ops={"first_seen": "DESC"}),
         Index("ix_jobs_company", "company"),
         Index("ix_jobs_location", "location_city", "location_state"),
         Index("ix_jobs_is_remote", "is_remote", postgresql_where=(is_remote == True)),
-        Index("ix_jobs_company_size", "company_size"),
         Index("ix_jobs_is_active", "is_active", postgresql_where=(is_active == True)),
         Index("ix_jobs_search_vector", "search_vector", postgresql_using="gin"),
+        Index(
+            "ix_jobs_active_posted",
+            "is_active",
+            "date_posted",
+            postgresql_where=(is_active == True),
+        ),
+        Index(
+            "ix_jobs_company_active",
+            "company_id",
+            "is_active",
+            "date_posted",
+            postgresql_where=(is_active == True),
+        ),
     )
 
 
@@ -121,10 +129,10 @@ class JobSource(Base):
     source: Mapped[str] = mapped_column(
         String(50), nullable=False
     )  # 'greenhouse', 'lever', 'ashby'
-    source_site: Mapped["Optional[str]"] = mapped_column(
+    source_site: Mapped[str | None] = mapped_column(
         String(50), nullable=True
     )  # same as source for ATS scrapers
-    external_id: Mapped["Optional[str]"] = mapped_column(String(255), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow
     )
@@ -151,15 +159,9 @@ class UserJobState(Base):
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
     is_seen: Mapped[bool] = mapped_column(Boolean, default=False)
-    favorited_at: Mapped["Optional[datetime]"] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    hidden_at: Mapped["Optional[datetime]"] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    seen_at: Mapped["Optional[datetime]"] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    favorited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationship
     job: Mapped["Job"] = relationship("Job", back_populates="user_state")
@@ -194,10 +196,8 @@ class Application(Base):
         Integer, ForeignKey("jobs.id", ondelete="CASCADE"), unique=True, nullable=False
     )
     status: Mapped[str] = mapped_column(String(50), default="applied")
-    notes: Mapped["Optional[str]"] = mapped_column(Text, nullable=True)
-    applied_at: Mapped["Optional[datetime]"] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow
     )

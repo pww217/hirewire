@@ -182,3 +182,16 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER job_search_vector_update
     BEFORE INSERT OR UPDATE OF title, company, description ON jobs
     FOR EACH ROW EXECUTE FUNCTION update_job_search_vector();
+
+-- ============================================================================
+-- ALEMBIC VERSION STAMP
+-- Marks fresh installs at the latest migration so `alembic upgrade head`
+-- is a no-op and does not try to re-create tables that already exist.
+-- Update this value whenever a new migration is added.
+-- ============================================================================
+CREATE TABLE alembic_version (
+    version_num VARCHAR(32) NOT NULL,
+    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+);
+
+INSERT INTO alembic_version (version_num) VALUES ('c3d4e5f6a7b8');

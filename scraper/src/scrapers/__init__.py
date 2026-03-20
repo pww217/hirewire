@@ -52,14 +52,6 @@ class ScrapingError(ScraperError):
         super().__init__(f"[{source}] {message}")
 
 
-class RateLimitError(ScrapingError):
-    """Rate limited by source."""
-
-    def __init__(self, source: str, retry_after: int = 60):
-        self.retry_after = retry_after
-        super().__init__(source, f"Rate limited, retry after {retry_after}s")
-
-
 from .ashby_scraper import AshbyScraper
 from .greenhouse_scraper import GreenhouseScraper
 from .lever_scraper import LeverScraper
@@ -68,7 +60,6 @@ __all__ = [
     "BaseScraper",
     "ScraperError",
     "ScrapingError",
-    "RateLimitError",
     "AshbyScraper",
     "GreenhouseScraper",
     "LeverScraper",

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import __version__
 from ..config import settings
 from ..database import get_db
 from ..schemas.common import HealthResponse
@@ -34,7 +35,7 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> HealthResponse:
     return HealthResponse(
         status=status,
         database=db_status,
-        version="0.1.0",
+        version=__version__,
         scrape_schedule=settings.scrape_schedule,
         next_runs=next_runs,
     )
