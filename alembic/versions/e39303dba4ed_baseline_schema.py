@@ -1,7 +1,7 @@
 """baseline schema
 
 Revision ID: e39303dba4ed
-Revises: 
+Revises:
 Create Date: 2026-03-12 16:41:55.283936
 
 This is the initial migration representing the full schema for fresh installs.
