@@ -11,15 +11,13 @@ Response shape (confirmed via smoke test on stripe):
 """
 
 import html as html_lib
-from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 import structlog
 
 from ..models.job import TrackedCompany
 from ..models.raw_job import RawJob
-from ..utils import parse_location
+from ..utils import parse_iso, parse_location
 from . import BaseScraper, ScrapingError
 
 log = structlog.get_logger()
@@ -80,7 +78,7 @@ class GreenhouseScraper(BaseScraper):
 
         return result
 
-    def _parse_job(self, job: dict) -> Optional[RawJob]:
+    def _parse_job(self, job: dict) -> RawJob | None:
         """Convert a single Greenhouse job dict to a RawJob."""
         job_id = job.get("id")
         title = (job.get("title") or "").strip()
@@ -101,7 +99,7 @@ class GreenhouseScraper(BaseScraper):
             is_remote = True
 
         # Date posted (updated_at is ISO string)
-        date_posted = _parse_iso(job.get("updated_at"))
+        date_posted = parse_iso(job.get("updated_at"))
 
         # Description comes in `content` field when ?content=true
         # Greenhouse returns HTML-escaped content (&lt;h2&gt; etc.) — unescape it
@@ -125,14 +123,3 @@ class GreenhouseScraper(BaseScraper):
         )
 
 
-def _parse_iso(value: Optional[str]) -> Optional[datetime]:
-    """Parse ISO 8601 datetime string."""
-    if not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except (ValueError, AttributeError):
-        return None

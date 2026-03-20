@@ -5,7 +5,7 @@ matching the PostgreSQL schema defined in shared/schema.sql.
 """
 
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -18,7 +18,7 @@ class JobSource(BaseModel):
 
     source: Literal["ashby", "greenhouse", "lever"]
     source_site: str = Field(..., max_length=50)
-    external_id: Optional[str] = Field(default=None, max_length=255)
+    external_id: str | None = Field(default=None, max_length=255)
 
 
 class Job(BaseModel):
@@ -32,46 +32,38 @@ class Job(BaseModel):
     dedup_hash: str = Field(..., min_length=32, max_length=32)
 
     # Source company FK
-    company_id: Optional[int] = None
+    company_id: int | None = None
 
     # Core fields
     title: str = Field(..., min_length=1, max_length=500)
     company: str = Field(..., min_length=1, max_length=255)
-    company_url: Optional[str] = Field(default=None, max_length=500)
+    company_url: str | None = Field(default=None, max_length=500)
 
     # Location (normalized)
-    location_raw: Optional[str] = Field(default=None, max_length=255)
-    location_city: Optional[str] = Field(default=None, max_length=100)
-    location_state: Optional[str] = Field(default=None, max_length=100)
-    location_country: Optional[str] = Field(default=None, max_length=100)
+    location_raw: str | None = Field(default=None, max_length=255)
+    location_city: str | None = Field(default=None, max_length=100)
+    location_state: str | None = Field(default=None, max_length=100)
+    location_country: str | None = Field(default=None, max_length=100)
     is_remote: bool = False
 
     # Job details
-    description: Optional[str] = None  # TEXT, no limit
+    description: str | None = None
     job_url: str = Field(..., min_length=1, max_length=1000)
-    job_type: Optional[Literal["full_time", "part_time", "contract", "internship"]] = (
-        None
-    )
+    job_type: Literal["full_time", "part_time", "contract", "internship"] | None = None
 
     # Salary
-    salary_min: Optional[float] = None
-    salary_max: Optional[float] = None
-    salary_interval: Optional[
-        Literal["yearly", "monthly", "weekly", "daily", "hourly"]
-    ] = None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    salary_interval: Literal["yearly", "monthly", "weekly", "daily", "hourly"] | None = None
 
     # Dates (all UTC)
-    date_posted: Optional[datetime] = None
-    first_seen: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
-    last_seen: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    date_posted: datetime | None = None
+    first_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Company metadata
-    company_size: Optional[str] = Field(default=None, max_length=50)
-    company_industry: Optional[str] = Field(default=None, max_length=100)
+    company_size: str | None = Field(default=None, max_length=50)
+    company_industry: str | None = Field(default=None, max_length=100)
 
     # Status
     is_active: bool = True
@@ -88,16 +80,16 @@ class TrackedCompany(BaseModel):
 
     id: int
     name: str = Field(..., max_length=255)
-    website: Optional[str] = Field(default=None, max_length=500)
-    ats_type: Optional[str] = Field(default=None, max_length=50)
-    ats_identifier: Optional[str] = Field(default=None, max_length=255)
-    last_scraped: Optional[datetime] = None
+    website: str | None = Field(default=None, max_length=500)
+    ats_type: str | None = Field(default=None, max_length=50)
+    ats_identifier: str | None = Field(default=None, max_length=255)
+    last_scraped: datetime | None = None
     enabled: bool = True
 
     # Glassdoor ratings (cached)
-    glassdoor_id: Optional[int] = None
-    glassdoor_rating: Optional[float] = None
-    glassdoor_url: Optional[str] = Field(default=None, max_length=500)
-    rating_updated_at: Optional[datetime] = None
+    glassdoor_id: int | None = None
+    glassdoor_rating: float | None = None
+    glassdoor_url: str | None = Field(default=None, max_length=500)
+    rating_updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}

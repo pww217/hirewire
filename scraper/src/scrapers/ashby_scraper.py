@@ -12,15 +12,12 @@ Response shape (confirmed via smoke test on notion):
             compensation: { compensationTiers: [{min, max, currency, interval}] } }
 """
 
-from datetime import datetime, timezone
-from typing import Optional
-
 import httpx
 import structlog
 
 from ..models.job import TrackedCompany
 from ..models.raw_job import RawJob
-from ..utils import parse_location
+from ..utils import parse_iso, parse_location
 from . import BaseScraper, ScrapingError
 
 log = structlog.get_logger()
@@ -89,7 +86,7 @@ class AshbyScraper(BaseScraper):
 
         return result
 
-    def _parse_job(self, job: dict) -> Optional[RawJob]:
+    def _parse_job(self, job: dict) -> RawJob | None:
         """Convert a single Ashby job dict to a RawJob."""
         job_id = job.get("id")
         title = job.get("title", "").strip()
@@ -122,7 +119,7 @@ class AshbyScraper(BaseScraper):
             salary_interval = raw_interval if raw_interval else None
 
         # Date posted
-        date_posted = _parse_iso(job.get("publishedAt"))
+        date_posted = parse_iso(job.get("publishedAt"))
 
         return RawJob(
             source="ashby",
@@ -145,14 +142,3 @@ class AshbyScraper(BaseScraper):
         )
 
 
-def _parse_iso(value: Optional[str]) -> Optional[datetime]:
-    """Parse ISO 8601 datetime string."""
-    if not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except (ValueError, AttributeError):
-        return None

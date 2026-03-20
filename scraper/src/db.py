@@ -4,7 +4,6 @@ Uses asyncpg for async PostgreSQL operations.
 """
 
 from contextlib import asynccontextmanager
-from typing import Optional
 
 import asyncpg
 import structlog
@@ -33,7 +32,7 @@ class Database:
             database_url: PostgreSQL connection string
         """
         self.database_url = database_url
-        self.pool: Optional[asyncpg.Pool] = None
+        self.pool: asyncpg.Pool | None = None
 
     async def connect(
         self, min_size: int = 2, max_size: int = 10

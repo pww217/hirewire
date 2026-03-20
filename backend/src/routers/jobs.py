@@ -262,14 +262,6 @@ async def get_glassdoor_info(
     return {row[0]: (float(row[1]) if row[1] is not None else None, row[2]) for row in result}
 
 
-# Keep backward-compat alias
-async def get_glassdoor_ratings(
-    db: AsyncSession, company_ids: list[int]
-) -> dict[int, float]:
-    info = await get_glassdoor_info(db, company_ids)
-    return {cid: rating for cid, (rating, _url) in info.items() if rating is not None}
-
-
 async def get_application_ids(
     db: AsyncSession, job_ids: list[int]
 ) -> set[int]:
@@ -307,6 +299,47 @@ async def get_user_states(
     )
 
     return {row.job_id: (row.is_favorite, row.is_hidden, row.is_seen) for row in result}
+
+
+def _build_job_fields(
+    job: Job,
+    sources: list[str],
+    is_favorite: bool,
+    is_hidden: bool,
+    is_seen: bool,
+    gd_rating: float | None,
+    gd_url: str | None,
+    is_applied: bool,
+) -> dict:
+    """Build the common field dict shared by JobResponse and JobWithDescription."""
+    return dict(
+        id=job.id,
+        company_id=job.company_id,
+        title=job.title,
+        company=job.company,
+        company_url=job.company_url,
+        location_raw=job.location_raw,
+        location_city=job.location_city,
+        location_state=job.location_state,
+        location_country=job.location_country,
+        is_remote=job.is_remote,
+        job_url=job.job_url,
+        job_type=job.job_type,
+        salary_min=job.salary_min,
+        salary_max=job.salary_max,
+        salary_interval=job.salary_interval,
+        date_posted=job.date_posted,
+        first_seen=job.first_seen,
+        company_size=job.company_size,
+        company_industry=job.company_industry,
+        sources=sources,
+        is_favorite=is_favorite,
+        is_hidden=is_hidden,
+        is_seen=is_seen,
+        glassdoor_rating=gd_rating,
+        glassdoor_url=gd_url,
+        is_applied=is_applied,
+    )
 
 
 @router.get("/jobs/all", response_model=JobBulkResponse)
@@ -375,37 +408,20 @@ async def list_all_jobs(
     job_responses = []
     for job in jobs:
         is_favorite, is_hidden, is_seen = states_map.get(job.id, (False, False, False))
-        sources = sources_map.get(job.id, [])
         gd_rating, gd_url = gd_map.get(job.company_id, (None, None))
         job_responses.append(
             JobWithDescription(
-                id=job.id,
-                company_id=job.company_id,
-                title=job.title,
-                company=job.company,
-                company_url=job.company_url,
-                location_raw=job.location_raw,
-                location_city=job.location_city,
-                location_state=job.location_state,
-                location_country=job.location_country,
-                is_remote=job.is_remote,
-                job_url=job.job_url,
-                job_type=job.job_type,
-                salary_min=job.salary_min,
-                salary_max=job.salary_max,
-                salary_interval=job.salary_interval,
-                date_posted=job.date_posted,
-                first_seen=job.first_seen,
-                company_size=job.company_size,
-                company_industry=job.company_industry,
-                sources=sources,
-                is_favorite=is_favorite,
-                is_hidden=is_hidden,
-                is_seen=is_seen,
+                **_build_job_fields(
+                    job=job,
+                    sources=sources_map.get(job.id, []),
+                    is_favorite=is_favorite,
+                    is_hidden=is_hidden,
+                    is_seen=is_seen,
+                    gd_rating=gd_rating,
+                    gd_url=gd_url,
+                    is_applied=job.id in applied_ids,
+                ),
                 description=job.description if include_descriptions else None,
-                glassdoor_rating=gd_rating,
-                glassdoor_url=gd_url,
-                is_applied=job.id in applied_ids,
             )
         )
 
@@ -507,36 +523,19 @@ async def list_jobs(
     job_responses = []
     for job in jobs:
         is_favorite, is_hidden, is_seen = states_map.get(job.id, (False, False, False))
-        sources = sources_map.get(job.id, [])
         gd_rating, gd_url = gd_map.get(job.company_id, (None, None))
-
         job_responses.append(
             JobResponse(
-                id=job.id,
-                title=job.title,
-                company=job.company,
-                company_url=job.company_url,
-                location_raw=job.location_raw,
-                location_city=job.location_city,
-                location_state=job.location_state,
-                location_country=job.location_country,
-                is_remote=job.is_remote,
-                job_url=job.job_url,
-                job_type=job.job_type,
-                salary_min=job.salary_min,
-                salary_max=job.salary_max,
-                salary_interval=job.salary_interval,
-                date_posted=job.date_posted,
-                first_seen=job.first_seen,
-                company_size=job.company_size,
-                company_industry=job.company_industry,
-                sources=sources,
-                is_favorite=is_favorite,
-                is_hidden=is_hidden,
-                is_seen=is_seen,
-                glassdoor_rating=gd_rating,
-                glassdoor_url=gd_url,
-                is_applied=job.id in applied_ids,
+                **_build_job_fields(
+                    job=job,
+                    sources=sources_map.get(job.id, []),
+                    is_favorite=is_favorite,
+                    is_hidden=is_hidden,
+                    is_seen=is_seen,
+                    gd_rating=gd_rating,
+                    gd_url=gd_url,
+                    is_applied=job.id in applied_ids,
+                )
             )
         )
 

@@ -20,7 +20,7 @@ import structlog
 from .config import settings
 from .db import Database, DatabaseConnectionError
 from .dedup import Deduplicator, normalize_jobs
-from .glassdoor import RATING_STALE_DAYS, lookup_company_rating
+from .glassdoor import lookup_company_rating
 from .models.raw_job import RawJob
 from .scrapers import AshbyScraper, GreenhouseScraper, LeverScraper, ScrapingError
 
@@ -179,7 +179,7 @@ async def main(company_id: int | None = None) -> ScrapeResult:
             await db.update_company_after_scrape(company.id, len(company_jobs))
 
             # Refresh Glassdoor rating if stale or missing
-            if await db.is_rating_stale(company.id, RATING_STALE_DAYS):
+            if await db.is_rating_stale(company.id, settings.glassdoor_rating_stale_days):
                 try:
                     gd = await lookup_company_rating(company.name)
                     if gd:
@@ -273,7 +273,7 @@ async def main(company_id: int | None = None) -> ScrapeResult:
         # =====================================================================
         # STEP 8: Mark stale jobs as inactive
         # =====================================================================
-        stale_count = await db.mark_stale_jobs_inactive(days=14)
+        stale_count = await db.mark_stale_jobs_inactive(days=settings.stale_job_days)
         if stale_count > 0:
             log.info("stale_jobs_deactivated", count=stale_count)
 

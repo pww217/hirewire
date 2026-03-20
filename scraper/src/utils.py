@@ -1,10 +1,23 @@
 """Shared utilities for HireWire scraper."""
 
 import re
-from typing import Optional
+from datetime import datetime, timezone
 
 
-def parse_location(raw: Optional[str]) -> tuple[Optional[str], Optional[str], Optional[str]]:
+def parse_iso(value: str | None) -> datetime | None:
+    """Parse ISO 8601 datetime string to timezone-aware datetime."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, AttributeError):
+        return None
+
+
+def parse_location(raw: str | None) -> tuple[str | None, str | None, str | None]:
     """Parse a location string into (raw, city, state) components.
 
     Handles common formats:

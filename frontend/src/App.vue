@@ -3,26 +3,17 @@
  * Main application component
  * Layout: Sidebar + Main content area
  */
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useJobsStore } from '@/stores/jobs'
-import { useSettingsStore } from '@/stores/settings'
 import Sidebar from '@/components/Sidebar.vue'
 import AddCompanyModal from '@/components/AddCompanyModal.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
 
 const jobsStore = useJobsStore()
-const settingsStore = useSettingsStore()
 
 const showAddCompany = ref(false)
 
-onMounted(async () => {
-  // Load user settings so exclusions are available for job fetching
-  await settingsStore.fetchSettings()
-})
-
-onUnmounted(() => {
-  jobsStore.stopAutoRefresh()
-})
+onUnmounted(() => jobsStore.stopAutoRefresh())
 </script>
 
 <template>

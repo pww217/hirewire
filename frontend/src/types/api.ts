@@ -105,37 +105,6 @@ export interface ValidationError {
   type: string
 }
 
-/**
- * Generic API error response
- */
-export interface ApiError {
-  detail: string | ValidationError[]
-}
-
-// ============================================================================
-// Query Parameters
-// ============================================================================
-
-/**
- * Job list query parameters
- */
-export interface JobListParams {
-  page?: number
-  per_page?: number
-  q?: string
-  company_id?: number | null
-  location?: string
-  is_remote?: boolean
-  company_size?: CompanySize[]
-  job_type?: JobType
-  source?: string
-  posted_after?: string
-  sort_by?: 'date_posted' | 'company' | 'title'
-  sort_order?: 'asc' | 'desc'
-  include_hidden?: boolean
-  favorites_only?: boolean
-}
-
 // ============================================================================
 // Settings Types
 // ============================================================================
@@ -238,18 +207,3 @@ export interface StatsResponse {
   last_job_added: string | null
 }
 
-// ============================================================================
-// User Job State Response Types
-// ============================================================================
-
-export interface SeenResponse {
-  id: number
-  is_seen: boolean
-  seen_at: string | null
-}
-
-export interface ApplyResponse {
-  id: number
-  is_applied: boolean
-  applied_at: string | null
-}

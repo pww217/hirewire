@@ -22,8 +22,6 @@ from curl_cffi.requests import AsyncSession
 
 log = structlog.get_logger()
 
-RATING_STALE_DAYS = 7
-
 # Available impersonation targets — rotated per-session for fingerprint diversity
 _IMPERSONATE_TARGETS = [
     "chrome120",
