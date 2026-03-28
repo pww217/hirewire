@@ -196,6 +196,7 @@ async def import_companies(
     errors: list[str] = []
     to_insert: list[dict] = []
     seen_keys: set[tuple[str, str]] = set()
+    seen_names: set[str] = set()
 
     for i, row in enumerate(rows, start=2):  # row 1 = header
         name = row.get("name", "").strip()
@@ -216,10 +217,11 @@ async def import_companies(
             continue
 
         key = (ats_type, ats_identifier)
-        if key in seen_keys:
+        if key in seen_keys or name in seen_names:
             errors.append(f"Row {i} ({name}): duplicate in file, skipped")
             continue
         seen_keys.add(key)
+        seen_names.add(name)
 
         enabled_raw = row.get("enabled", "true").strip().lower()
         enabled = enabled_raw not in ("false", "0", "no")
@@ -236,18 +238,24 @@ async def import_companies(
     imported = 0
 
     if to_insert:
-        # Fetch existing (ats_type, ats_identifier) pairs in one query
+        # Fetch existing (ats_type, ats_identifier) pairs and names in one query each
         keys = [(r["ats_type"], r["ats_identifier"]) for r in to_insert]
-        existing_result = await db.execute(
+        names = [r["name"] for r in to_insert]
+        existing_ats_result = await db.execute(
             select(TrackedCompany.ats_type, TrackedCompany.ats_identifier).where(
                 tuple_(TrackedCompany.ats_type, TrackedCompany.ats_identifier).in_(keys)
             )
         )
-        existing_keys = {(row[0], row[1]) for row in existing_result.all()}
+        existing_keys = {(row[0], row[1]) for row in existing_ats_result.all()}
+
+        existing_names_result = await db.execute(
+            select(TrackedCompany.name).where(TrackedCompany.name.in_(names))
+        )
+        existing_names = {row[0] for row in existing_names_result.all()}
 
         for r in to_insert:
             key = (r["ats_type"], r["ats_identifier"])
-            if key in existing_keys:
+            if key in existing_keys or r["name"] in existing_names:
                 skipped += 1
                 continue
             db.add(TrackedCompany(
