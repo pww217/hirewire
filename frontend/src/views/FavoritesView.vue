@@ -65,6 +65,7 @@ function handleJobClick(jobId: number) {
         v-else
         :jobs="favoritesStore.favorites"
         :total="favoritesStore.favoriteCount"
+        :is-viewed="() => true"
         @favorite="handleFavorite"
         @job-click="handleJobClick"
       />

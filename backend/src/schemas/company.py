@@ -159,3 +159,9 @@ class RefreshRatingsResponse(BaseModel):
     refreshed: int
     still_missing: int
     companies: list[RefreshRatingResult]
+
+
+class ClearRatingsResponse(BaseModel):
+    """Response from POST /api/companies/clear-ratings."""
+
+    cleared: int

@@ -459,7 +459,7 @@ function handleJobClick(jobId: number) {
           :jobs="jobsStore.filteredJobs"
           :loading="jobsStore.isLoading"
           :total="jobsStore.total"
-          :total-unfiltered="jobsStore.allJobs.length"
+          :total-unfiltered="jobsStore.unfilteredTotal"
           :selected-job-id="selectedJobId"
           :is-viewed="viewedStore.isViewed"
           :has-company="companiesStore.selectedCompanyId !== null || companiesStore.companies.length > 0"

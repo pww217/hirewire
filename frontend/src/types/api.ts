@@ -190,6 +190,10 @@ export interface CompanyImportResponse {
   errors: string[]
 }
 
+export interface ClearRatingsResponse {
+  cleared: number
+}
+
 // ============================================================================
 // Stats Types
 // ============================================================================

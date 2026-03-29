@@ -282,6 +282,15 @@ export const useJobsStore = defineStore('jobs', () => {
   const total = computed(() => filteredJobs.value.length)
   const hasJobs = computed(() => allJobs.value.length > 0)
 
+  const unfilteredTotal = computed(() => {
+    const companiesStore = useCompaniesStore()
+    if (companiesStore.selectedCompanyId !== null) {
+      const cid = companiesStore.selectedCompanyId
+      return allJobs.value.filter(j => j.company_id === cid).length
+    }
+    return allJobs.value.length
+  })
+
   /** Count of filtered jobs not yet seen by the user */
   const unseenTotal = computed(() => filteredJobs.value.filter(j => !j.is_seen).length)
 
@@ -573,6 +582,7 @@ export const useJobsStore = defineStore('jobs', () => {
     // Getters
     filteredJobs,
     total,
+    unfilteredTotal,
     hasJobs,
     activeFilterCount,
     unseenTotal,

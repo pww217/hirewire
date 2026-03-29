@@ -12,6 +12,7 @@ Implements:
 - POST /api/companies/sync-all         - Trigger full sync of all enabled companies
 - POST /api/companies/{id}/sync        - Trigger on-demand sync for a single company
 - POST /api/companies/refresh-ratings  - Re-fetch Glassdoor ratings for companies missing them
+- POST /api/companies/clear-ratings    - Wipe all stored Glassdoor data so ratings are re-fetched fresh
 """
 
 import csv
@@ -21,12 +22,14 @@ from datetime import datetime, timezone
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, tuple_
+from sqlalchemy import delete as sql_delete, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.company import TrackedCompany
+from ..models.job import Job
 from ..schemas.company import (
+    ClearRatingsResponse,
     CompanyCreate,
     CompanyDetectRequest,
     CompanyDetectResponse,
@@ -196,7 +199,6 @@ async def import_companies(
     errors: list[str] = []
     to_insert: list[dict] = []
     seen_keys: set[tuple[str, str]] = set()
-    seen_names: set[str] = set()
 
     for i, row in enumerate(rows, start=2):  # row 1 = header
         name = row.get("name", "").strip()
@@ -217,11 +219,10 @@ async def import_companies(
             continue
 
         key = (ats_type, ats_identifier)
-        if key in seen_keys or name in seen_names:
+        if key in seen_keys:
             errors.append(f"Row {i} ({name}): duplicate in file, skipped")
             continue
         seen_keys.add(key)
-        seen_names.add(name)
 
         enabled_raw = row.get("enabled", "true").strip().lower()
         enabled = enabled_raw not in ("false", "0", "no")
@@ -258,6 +259,7 @@ async def import_companies(
             if key in existing_keys or r["name"] in existing_names:
                 skipped += 1
                 continue
+            existing_names.add(r["name"])  # guard against name collisions within the batch
             db.add(TrackedCompany(
                 name=r["name"],
                 website=r["website"],
@@ -312,15 +314,12 @@ async def delete_company(
     company_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Remove a tracked company.
-
-    Disables the company and removes it from the tracking list.
-    Existing jobs are preserved (company_id set to NULL via ON DELETE SET NULL).
-    """
+    """Remove a tracked company and all associated jobs and metadata."""
     company = await db.get(TrackedCompany, company_id)
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
+    await db.execute(sql_delete(Job).where(Job.company_id == company_id))
     await db.delete(company)
     await db.commit()
 
@@ -480,3 +479,27 @@ async def sync_company(
         error=result.error,
         started_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+@router.post("/clear-ratings", response_model=ClearRatingsResponse)
+async def clear_glassdoor_ratings(
+    db: AsyncSession = Depends(get_db),
+) -> ClearRatingsResponse:
+    """Wipe all stored Glassdoor data (ID, rating, URL, timestamp) for every company.
+
+    Forces a full re-fetch on the next refresh-ratings run.
+    """
+    from sqlalchemy import update as sql_update
+
+    result = await db.execute(
+        sql_update(TrackedCompany).values(
+            glassdoor_id=None,
+            glassdoor_rating=None,
+            glassdoor_url=None,
+            rating_updated_at=None,
+        )
+    )
+    await db.commit()
+    cleared = result.rowcount
+    log.info("glassdoor_ratings_cleared", cleared=cleared)
+    return ClearRatingsResponse(cleared=cleared)
