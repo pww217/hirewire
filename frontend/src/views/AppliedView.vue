@@ -58,6 +58,7 @@ function handleJobClick(jobId: number) {
         v-else
         :jobs="applicationsStore.appliedJobs"
         :total="applicationsStore.appliedCount"
+        :is-viewed="() => true"
         @apply="handleApply"
         @job-click="handleJobClick"
       />

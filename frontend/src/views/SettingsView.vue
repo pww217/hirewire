@@ -15,6 +15,25 @@ const importResult = ref<CompanyImportResponse | null>(null)
 const importError = ref<string | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 
+const isClearingRatings = ref(false)
+const clearRatingsConfirm = ref(false)
+const clearRatingsResult = ref<{ cleared: number } | null>(null)
+const clearRatingsError = ref<string | null>(null)
+
+async function handleClearRatings() {
+  isClearingRatings.value = true
+  clearRatingsResult.value = null
+  clearRatingsError.value = null
+  clearRatingsConfirm.value = false
+  try {
+    clearRatingsResult.value = await companiesStore.clearGlassdoorRatings()
+  } catch (e) {
+    clearRatingsError.value = e instanceof Error ? e.message : 'Clear failed'
+  } finally {
+    isClearingRatings.value = false
+  }
+}
+
 async function handleExport() {
   isExporting.value = true
   try {
@@ -105,6 +124,50 @@ async function handleImport() {
             </div>
             <div v-if="importError" class="result-box result-error">{{ importError }}</div>
           </div>
+        </div>
+      </section>
+
+      <!-- Glassdoor Data -->
+      <section class="settings-section">
+        <h2 class="section-title">Glassdoor Data</h2>
+        <p class="section-desc">Clear all stored Glassdoor ratings and company IDs. Ratings will be re-fetched from scratch on the next refresh run.</p>
+
+        <div class="action-block">
+          <span class="action-label">Clear All Ratings</span>
+          <p class="action-hint">Wipes glassdoor_rating, glassdoor_id, and glassdoor_url for all companies.</p>
+
+          <div v-if="!clearRatingsConfirm">
+            <button
+              class="btn btn-danger"
+              :disabled="isClearingRatings"
+              @click="clearRatingsConfirm = true"
+            >
+              Clear Glassdoor Ratings
+            </button>
+          </div>
+
+          <div v-else class="confirm-row">
+            <span class="confirm-prompt">Are you sure? This cannot be undone.</span>
+            <button
+              class="btn btn-danger"
+              :disabled="isClearingRatings"
+              @click="handleClearRatings"
+            >
+              {{ isClearingRatings ? 'Clearing…' : 'Yes, clear all' }}
+            </button>
+            <button
+              class="btn btn-secondary"
+              :disabled="isClearingRatings"
+              @click="clearRatingsConfirm = false"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <div v-if="clearRatingsResult" class="result-box result-success">
+            Cleared Glassdoor data for <strong>{{ clearRatingsResult.cleared }}</strong> {{ clearRatingsResult.cleared === 1 ? 'company' : 'companies' }}.
+          </div>
+          <div v-if="clearRatingsError" class="result-box result-error">{{ clearRatingsError }}</div>
         </div>
       </section>
 
@@ -255,6 +318,40 @@ async function handleImport() {
   padding-left: var(--space-4);
   color: var(--accent-warning);
   font-size: var(--text-xs);
+}
+
+.confirm-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.confirm-prompt {
+  font-size: var(--text-sm);
+  color: var(--accent-warning);
+  margin-right: var(--space-1);
+}
+
+.btn-danger {
+  background: color-mix(in srgb, var(--accent-error) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-error) 40%, transparent);
+  color: var(--accent-error);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-error) 25%, transparent);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .about-text {

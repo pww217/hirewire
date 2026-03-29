@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type {
+  ClearRatingsResponse,
   CompanyImportResponse,
   TrackedCompany,
   TrackedCompanyCreate,
@@ -102,6 +103,12 @@ export const useCompaniesStore = defineStore('companies', () => {
     return result
   }
 
+  async function clearGlassdoorRatings(): Promise<ClearRatingsResponse> {
+    const result = await api.post<ClearRatingsResponse>('/api/companies/clear-ratings')
+    await fetchCompanies()
+    return result
+  }
+
   async function syncCompany(id: number): Promise<SyncResponse | null> {
     let result: SyncResponse | null = null
     try {
@@ -131,5 +138,6 @@ export const useCompaniesStore = defineStore('companies', () => {
     syncCompany,
     exportCompanies,
     importCompanies,
+    clearGlassdoorRatings,
   }
 })

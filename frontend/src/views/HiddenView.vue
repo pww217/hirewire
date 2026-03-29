@@ -84,6 +84,7 @@ function handleJobClick(jobId: number) {
         <JobList
           :jobs="hiddenJobs"
           :total="total"
+          :is-viewed="() => true"
           @hide="handleHide"
           @job-click="handleJobClick"
         />

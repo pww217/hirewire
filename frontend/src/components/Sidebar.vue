@@ -7,8 +7,6 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCompaniesStore } from '@/stores/companies'
-import { useFavoritesStore } from '@/stores/favorites'
-import { useApplicationsStore } from '@/stores/applications'
 import { useJobsStore } from '@/stores/jobs'
 import { useUIStore } from '@/stores/ui'
 import { useApi } from '@/composables/useApi'
@@ -16,8 +14,6 @@ import { useApi } from '@/composables/useApi'
 const route = useRoute()
 const router = useRouter()
 const companiesStore = useCompaniesStore()
-const favoritesStore = useFavoritesStore()
-const applicationsStore = useApplicationsStore()
 const jobsStore = useJobsStore()
 
 const emit = defineEmits<{ 'open-add-company': [] }>()
@@ -133,17 +129,11 @@ onMounted(() => {
       <RouterLink to="/favorites" class="nav-link" :class="{ active: route.name === 'favorites' }">
         <span class="nav-icon">⭐</span>
         <span class="nav-label">Favorites</span>
-        <span v-if="favoritesStore.favoriteCount > 0" class="nav-badge">
-          {{ favoritesStore.favoriteCount }}
-        </span>
       </RouterLink>
 
       <RouterLink to="/applied" class="nav-link" :class="{ active: route.name === 'applied' }">
         <span class="nav-icon">✅</span>
         <span class="nav-label">Applied</span>
-        <span v-if="applicationsStore.appliedCount > 0" class="nav-badge nav-badge-green">
-          {{ applicationsStore.appliedCount }}
-        </span>
       </RouterLink>
 
       <RouterLink to="/hidden" class="nav-link" :class="{ active: route.name === 'hidden' }">
