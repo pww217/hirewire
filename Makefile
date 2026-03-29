@@ -1,7 +1,7 @@
 # HireWire Local Development Makefile
 # Usage: make help
 
-.PHONY: dev serve install db db-wait db-reset backend frontend sync sync-local logs clean stop-dev venv migration help
+.PHONY: dev serve install db db-wait db-reset backend frontend sync sync-local logs clean stop-dev venv migration lint help
 
 # Default target
 .DEFAULT_GOAL := help
@@ -81,6 +81,10 @@ sync:
 sync-local: venv
 	DATABASE_URL=$(DB_URL) LOG_LEVEL=DEBUG LOG_FORMAT=console \
 	$(PYTHON) -m scraper.src.main
+
+## lint: Run ruff linter with auto-fix on all Python source
+lint: venv
+	$(VENV)/bin/ruff check --fix .
 
 ## migration: Generate a new Alembic migration (usage: make migration MSG="describe change")
 migration: venv

@@ -18,11 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncpg
 from scraper.src.glassdoor import (
     _extract_rating_from_text,
-    _extract_rating_near_glassdoor,
-    _fetch_glassdoor_page,
     _find_via_duckduckgo,
     _find_via_google,
-    _find_via_bing,
+    _parse_ddg_results,
     _random_impersonate,
 )
 from curl_cffi.requests import AsyncSession
@@ -68,10 +66,12 @@ async def check_direct_glassdoor(glassdoor_id: int, short_name: str) -> float | 
 
 
 async def fetch_ddg_raw(session: AsyncSession, company_name: str):
-    """Fetch raw DDG HTML and show what rating patterns match, old vs new logic."""
-    from urllib.parse import quote_plus
-    from scraper.src.glassdoor import _browser_headers, _extract_gd_id_and_name
+    """Fetch raw DDG HTML and show per-block parsing result vs whole-page extraction."""
     import re
+    from urllib.parse import quote_plus
+
+    from scraper.src.glassdoor import _browser_headers
+
     q = quote_plus(f"{company_name} glassdoor rating")
     url = f"https://html.duckduckgo.com/html/?q={q}"
     try:
@@ -79,10 +79,9 @@ async def fetch_ddg_raw(session: AsyncSession, company_name: str):
         if r.status_code != 200:
             return None, None, None
         text = r.text
-        old_rating = _extract_rating_from_text(text)
-        new_rating = _extract_rating_near_glassdoor(text)
+        whole_page_rating = _extract_rating_from_text(text)
+        per_block_id, per_block_slug, per_block_rating = _parse_ddg_results(text, company_name)
 
-        # Find the contexts where glassdoor.com appears to show what's nearby
         contexts = []
         for m in re.finditer(r"glassdoor\.com", text, re.IGNORECASE):
             start = max(0, m.start() - 200)
@@ -90,7 +89,7 @@ async def fetch_ddg_raw(session: AsyncSession, company_name: str):
             chunk = text[start:end].replace("\n", " ").strip()
             contexts.append(chunk[:300])
 
-        return old_rating, new_rating, contexts[:3]
+        return (whole_page_rating, (per_block_id, per_block_slug, per_block_rating)), contexts[:3]
     except Exception as e:
         return None, None, [str(e)]
 
@@ -108,11 +107,13 @@ async def diagnose_company(conn, name: str, glassdoor_id: int, stored_rating, gl
     results = {}
 
     async with AsyncSession(impersonate=_random_impersonate()) as session:
-        # Show old vs new extraction on raw DDG HTML
-        old_r, new_r, contexts = await fetch_ddg_raw(session, name)
-        print(f"  [ddg raw] old_logic={old_r}  new_logic={new_r}")
+        # Show whole-page vs per-block extraction on raw DDG HTML
+        ratings, contexts = await fetch_ddg_raw(session, name)
+        if ratings:
+            whole_page, (pb_id, pb_slug, pb_rating) = ratings
+            print(f"  [ddg raw] whole_page={whole_page}  per_block=id={pb_id} slug={pb_slug!r} rating={pb_rating}")
         if contexts:
-            print(f"  [ddg raw] glassdoor context snippet:")
+            print("  [ddg raw] glassdoor context snippet:")
             print(f"    ...{contexts[0][:200]}...")
         await asyncio.sleep(1.0)
 
@@ -129,7 +130,7 @@ async def diagnose_company(conn, name: str, glassdoor_id: int, stored_rating, gl
                 print(f"  [{finder_name}] ERROR: {e}")
 
     # Direct Glassdoor check
-    print(f"  [glassdoor direct] fetching...")
+    print("  [glassdoor direct] fetching...")
     direct_rating = await check_direct_glassdoor(glassdoor_id, short_name)
     print(f"  [glassdoor direct] rating={direct_rating}")
 
