@@ -22,7 +22,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2: Python with API + Scraper + Frontend static files
 # =============================================================================
-FROM python:3.14-slim@sha256:bc389f7dfcb21413e72a28f491985326994795e34d2b86c8ae2f417b4e7818aa
+FROM python:3.14-slim@sha256:9b9a75b908891c42b7af174dcf3f6534ebcedfc28c874c6281eb452e86470e3e
 
 WORKDIR /app
 
