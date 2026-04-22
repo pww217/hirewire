@@ -7,7 +7,7 @@
 # =============================================================================
 # Stage 1: Build frontend
 # =============================================================================
-FROM node:20-slim@sha256:f93745c153377ee2fbbdd6e24efcd03cd2e86d6ab1d8aa9916a3790c40313a55 AS frontend-builder
+FROM node:20-slim@sha256:9e24e50c93b2de3c02962a71c7b6ebe1396b3372016d0918f472eaf627837b59 AS frontend-builder
 
 WORKDIR /app/frontend
 
